@@ -8,23 +8,27 @@ import (
 	"github.com/flynn/noise"
 )
 
+// mixnetCipherSuite is the cipher suite used for all layered encryption.
 var mixnetCipherSuite = noise.NewCipherSuite(noise.DH25519, noise.CipherChaChaPoly, noise.HashSHA256)
 
-// LayeredEncrypter handles layered onion encryption
+// LayeredEncrypter implements multi-layer onion encryption for mixnet traffic.
+// It handles layered onion encryption using Noise Protocol primitives.
 type LayeredEncrypter struct {
 	hopCount int
 }
 
-// EncryptionKey represents an ephemeral key for one encryption layer.
+// EncryptionKey holds the key material and destination information for a single encryption layer.
 // Each key is generated fresh per Encrypt call via GenerateKeypair, so a
 // fixed nonce of 0 never causes nonce reuse with the same key (Req 16.2).
 type EncryptionKey struct {
-	Key         []byte // Curve25519 private key (ephemeral, new per Encrypt call)
+	// Key is the raw symmetric key material (Curve25519 private key, ephemeral, new per Encrypt call).
+	Key []byte
+	// Destination is the identifier of the peer that should decrypt this layer.
 	Destination string
 	nonce       uint64 // always 0; safe because Key is ephemeral (single-use)
 }
 
-// NewLayeredEncrypter creates a new layered encrypter
+// NewLayeredEncrypter creates a new LayeredEncrypter with the specified number of hops.
 func NewLayeredEncrypter(hopCount int) *LayeredEncrypter {
 	return &LayeredEncrypter{
 		hopCount: hopCount,
@@ -116,23 +120,17 @@ func (e *LayeredEncrypter) Decrypt(ciphertext []byte, keys []*EncryptionKey) ([]
 	return noiseCipher.Decrypt(nil, last.nonce, nil, data)
 }
 
-// SecureErase securely wipes all key material from memory (Req 16.3).
-// Uses explicit byte-level zeroing that cannot be optimized away by the compiler
-// via the use of the runtime.KeepAlive barrier (via unsafe indirect write).
+// SecureEraseBytes overwrites the content of a byte slice with zeroes to remove sensitive data from memory.
 func SecureEraseBytes(b []byte) {
 	for i := range b {
 		b[i] = 0
 	}
 }
 
-// SecureErase implements the Eraser interface (Req 16.3).
-// Callers are responsible for passing the key slices they wish to erase;
-// this method is intentionally a no-op on the encrypter itself because
-// keys are generated and held by the caller (not stored inside
-// LayeredEncrypter).  Use SecureEraseBytes on the EncryptionKey.Key slices.
+// SecureErase is a no-op on the LayeredEncrypter itself as it doesn't store keys.
 func (e *LayeredEncrypter) SecureErase() {}
 
-// EraseKeys zeroes out all key material in the provided keys slice (Req 16.3).
+// EraseKeys overwrites all key material in a slice of EncryptionKey instances.
 func EraseKeys(keys []*EncryptionKey) {
 	for _, k := range keys {
 		if k != nil {
@@ -141,12 +139,12 @@ func EraseKeys(keys []*EncryptionKey) {
 	}
 }
 
-// HopCount returns the number of encryption layers
+// HopCount returns the number of encryption layers configured for this encrypter.
 func (e *LayeredEncrypter) HopCount() int {
 	return e.hopCount
 }
 
-// Eraser interface for secure key erasure
+// Eraser is an interface for types that can securely erase their sensitive contents.
 type Eraser interface {
 	SecureErase()
 }

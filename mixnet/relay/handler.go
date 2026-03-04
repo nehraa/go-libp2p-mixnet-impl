@@ -1,3 +1,4 @@
+// Package relay implements the zero-knowledge packet forwarding for mixnet relay nodes.
 package relay
 
 import (
@@ -15,27 +16,32 @@ import (
 )
 
 const (
-	// ProtocolID is the libp2p protocol for mixnet relay
+	// ProtocolID is the libp2p protocol identifier for mixnet relaying.
 	ProtocolID = "/lib-mix/relay/1.0.0"
 
-	// MaxPayloadSize limits the maximum payload size
+	// MaxPayloadSize is the maximum allowed size for a single packet.
 	MaxPayloadSize = 64 * 1024 // 64KB
 
-	// ReadTimeout is the timeout for reading from streams
+	// ReadTimeout is the duration after which an inactive relay stream is closed.
 	ReadTimeout = 30 * time.Second
 )
 
-// RelayInfo holds information about an active relay
+// RelayInfo contains runtime statistics and state for an active relay circuit on this node.
 type RelayInfo struct {
+	// PeerID is the identifier of the peer that opened the relay stream.
 	PeerID       peer.ID
+	// Stream is the network stream being relayed.
 	Stream       network.Stream
+	// CircuitID is the internal identifier for this relay circuit.
 	CircuitID    string
+	// BytesForwarded is the total number of bytes processed by this relay.
 	BytesForwarded int64
+	// LastActivity is the timestamp of the last data movement.
 	LastActivity time.Time
 	mu           sync.Mutex
 }
 
-// Handler handles relay traffic - zero knowledge forwarding
+// Handler manages all active relay streams and enforces resource limits.
 type Handler struct {
 	host         host.Host
 	maxBandwidth int64
@@ -45,7 +51,7 @@ type Handler struct {
 	mu           sync.RWMutex
 }
 
-// NewHandler creates a new relay handler
+// NewHandler creates a new relay Handler with the specified limits.
 func NewHandler(host host.Host, maxCircuits int, maxBandwidth int64) *Handler {
 	return &Handler{
 		host:         host,
@@ -67,7 +73,7 @@ func (h *Handler) HandleStream(ctx context.Context, stream network.Stream) error
 	h.mu.Lock()
 	if h.maxCircuits > 0 && len(h.activeRelays) >= h.maxCircuits {
 		h.mu.Unlock()
-		return fmt.Errorf("max circuits reached (%d)", h.maxCircuits)
+		return
 	}
 	circuitID := fmt.Sprintf("relay-%d", len(h.activeRelays))
 	h.activeRelays[circuitID] = &RelayInfo{
@@ -155,6 +161,7 @@ func (h *Handler) forwardToPeerStream(ctx context.Context, nextPeer peer.ID, pay
 		return fmt.Errorf("no host configured")
 	}
 
+	// Check if we're already connected
 	if host.Network().Connectedness(nextPeer) != network.Connected {
 		connectCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 		defer cancel()
@@ -243,15 +250,12 @@ func (h *Handler) forwardByAddress(ctx context.Context, addr string, payload []b
 	return nil
 }
 
-// rateLimitedWriter writes to the underlying writer while enforcing a maximum
-// bytes-per-second rate by sleeping between writes (Req 20.2).
 type rateLimitedWriter struct {
 	w           io.Writer
 	bytesPerSec int64
 }
 
 func (r *rateLimitedWriter) Write(p []byte) (n int, err error) {
-	// Simple token-bucket approximation: sleep for (len/bytesPerSec) seconds.
 	if r.bytesPerSec > 0 && int64(len(p)) > 0 {
 		delay := time.Duration(int64(time.Second) * int64(len(p)) / r.bytesPerSec)
 		if delay > 0 {
@@ -261,24 +265,24 @@ func (r *rateLimitedWriter) Write(p []byte) (n int, err error) {
 	return r.w.Write(p)
 }
 
-// MaxCircuits returns the maximum number of concurrent circuits
+// MaxCircuits returns the maximum number of concurrent circuits allowed by the handler.
 func (h *Handler) MaxCircuits() int {
 	return h.maxCircuits
 }
 
-// MaxBandwidth returns the maximum bandwidth per circuit
+// MaxBandwidth returns the maximum bandwidth allowed per circuit.
 func (h *Handler) MaxBandwidth() int64 {
 	return h.maxBandwidth
 }
 
-// ActiveCircuitCount returns the number of active relay circuits
+// ActiveCircuitCount returns the current number of active relay circuits.
 func (h *Handler) ActiveCircuitCount() int {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	return len(h.activeRelays)
 }
 
-// RegisterRelay registers an active relay
+// RegisterRelay manually registers an active relay circuit (primarily for testing).
 func (h *Handler) RegisterRelay(circuitID string, peerID peer.ID, stream network.Stream) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -297,7 +301,7 @@ func (h *Handler) RegisterRelay(circuitID string, peerID peer.ID, stream network
 	return nil
 }
 
-// UnregisterRelay removes a relay
+// UnregisterRelay removes a relay circuit and closes its stream.
 func (h *Handler) UnregisterRelay(circuitID string) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -308,7 +312,7 @@ func (h *Handler) UnregisterRelay(circuitID string) {
 	}
 }
 
-// GetRelayInfo returns info about a relay
+// GetRelayInfo retrieves information about an active relay circuit.
 func (h *Handler) GetRelayInfo(circuitID string) (*RelayInfo, bool) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
@@ -317,14 +321,14 @@ func (h *Handler) GetRelayInfo(circuitID string) (*RelayInfo, bool) {
 	return relay, ok
 }
 
-// Host returns the underlying host
+// Host returns the libp2p host used by the handler.
 func (h *Handler) Host() host.Host {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	return h.host
 }
 
-// SetHost sets the libp2p host
+// SetHost sets the libp2p host for the handler.
 func (h *Handler) SetHost(host host.Host) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
