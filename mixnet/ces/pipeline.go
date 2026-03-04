@@ -120,6 +120,87 @@ func (p *CESPipeline) Reconstruct(shards []*Shard, keys []*EncryptionKey) ([]byt
 	return decompressed, nil
 }
 
+// ProcessPerCircuit applies the CES pipeline with per-circuit routing (Req 14).
+// It compresses data once, shards it, then encrypts each shard independently
+// using circuit-specific routing paths so each relay only knows the next hop.
+func (p *CESPipeline) ProcessPerCircuit(data []byte, circuitPaths [][]string) ([]*Shard, [][]*EncryptionKey, error) {
+	if len(data) == 0 {
+		return nil, nil, fmt.Errorf("empty data")
+	}
+
+	// Step 1: Compress once
+	compressed, err := p.compressor.Compress(data)
+	if err != nil {
+		return nil, nil, fmt.Errorf("compression failed: %w", err)
+	}
+
+	// Step 2: Shard the compressed data
+	shards, err := p.sharder.Shard(compressed)
+	if err != nil {
+		return nil, nil, fmt.Errorf("sharding failed: %w", err)
+	}
+
+	// Step 3: Encrypt each shard independently with its circuit path
+	perShardKeys := make([][]*EncryptionKey, len(shards))
+	for i := range shards {
+		if i >= len(circuitPaths) {
+			break
+		}
+		encrypted, keys, err := p.encrypter.Encrypt(shards[i].Data, circuitPaths[i])
+		if err != nil {
+			return nil, nil, fmt.Errorf("encryption failed for shard %d: %w", i, err)
+		}
+		shards[i].Data = encrypted
+		perShardKeys[i] = keys
+	}
+
+	return shards, perShardKeys, nil
+}
+
+// ReconstructPerCircuit applies the inverse of ProcessPerCircuit:
+// decrypts each shard, reconstructs, then decompresses.
+func (p *CESPipeline) ReconstructPerCircuit(shards []*Shard, perShardKeys [][]*EncryptionKey) ([]byte, error) {
+	threshold := p.cfg.ErasureThreshold
+	if threshold == 0 {
+		threshold = (p.cfg.CircuitCount*6 + 9) / 10
+		if threshold < 1 {
+			threshold = 1
+		}
+	}
+
+	if len(shards) < threshold {
+		return nil, fmt.Errorf("insufficient shards: have %d, need %d", len(shards), threshold)
+	}
+
+	// Step 1: Decrypt each shard
+	decryptedShards := make([]*Shard, len(shards))
+	for i, shard := range shards {
+		if i >= len(perShardKeys) || perShardKeys[i] == nil {
+			decryptedShards[i] = shard
+			continue
+		}
+		decrypted, err := p.encrypter.Decrypt(shard.Data, perShardKeys[i])
+		if err != nil {
+			return nil, fmt.Errorf("decryption failed for shard %d: %w", i, err)
+		}
+		decryptedShards[i] = &Shard{Index: shard.Index, Data: decrypted}
+	}
+
+	// Step 2: Reconstruct
+	reconstructed, err := p.sharder.Reconstruct(decryptedShards)
+	if err != nil {
+		return nil, fmt.Errorf("reconstruction failed: %w", err)
+	}
+
+	// Step 3: Decompress
+	decompressed, err := p.compressor.Decompress(reconstructed)
+	if err != nil {
+		return nil, fmt.Errorf("decompression failed: %w", err)
+	}
+
+	return decompressed, nil
+}
+
 // Config returns the pipeline configuration
 func (p *CESPipeline) Config() *Config {
 	return p.cfg

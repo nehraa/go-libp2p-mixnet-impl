@@ -23,6 +23,7 @@ type MixnetConfig struct {
 	HopCount         int
 	CircuitCount     int
 	Compression      string
+	CompressionLevel int // 0 = default; for gzip: 1-9 (Req 15)
 	ErasureThreshold int
 
 	// Relay selection (Req 4)
@@ -107,6 +108,13 @@ func (c *MixnetConfig) Validate() error {
 	// Randomness factor validation (Req 4.10)
 	if c.RandomnessFactor < 0.0 || c.RandomnessFactor > 1.0 {
 		return fmt.Errorf("randomness factor must be between 0.0 and 1.0, got %f", c.RandomnessFactor)
+	}
+
+	// CompressionLevel validation for gzip (0-9): 0 = default, 1-9 = explicit (Req 15)
+	if c.Compression == "gzip" && c.CompressionLevel != 0 {
+		if c.CompressionLevel < 1 || c.CompressionLevel > 9 {
+			return fmt.Errorf("gzip compression level must be between 0 and 9, got %d", c.CompressionLevel)
+		}
 	}
 
 	return nil

@@ -16,6 +16,7 @@ type MetricsCollector struct {
 	throughputBytes  uint64
 	compressionRatio float64
 	activeCircuits   int
+	circuitThroughput map[string]uint64 // per-circuit throughput bytes (Req 17.4)
 }
 
 // NewMetricsCollector creates a new metrics collector
@@ -91,6 +92,34 @@ func (m *MetricsCollector) CircuitClosed() {
 	}
 }
 
+// RecordCircuitThroughput records bytes sent on a specific circuit (Req 17.4).
+func (m *MetricsCollector) RecordCircuitThroughput(circuitID string, bytes uint64) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.circuitThroughput == nil {
+		m.circuitThroughput = make(map[string]uint64)
+	}
+	m.circuitThroughput[circuitID] += bytes
+}
+
+// CircuitThroughput returns total bytes sent on a specific circuit (Req 17.4).
+func (m *MetricsCollector) CircuitThroughput(circuitID string) uint64 {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.circuitThroughput[circuitID]
+}
+
+// AllCircuitThroughput returns a copy of per-circuit throughput stats (Req 17.4).
+func (m *MetricsCollector) AllCircuitThroughput() map[string]uint64 {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	result := make(map[string]uint64)
+	for k, v := range m.circuitThroughput {
+		result[k] = v
+	}
+	return result
+}
+
 // GetMetrics returns current metrics (Req 17)
 func (m *MetricsCollector) GetMetrics() map[string]interface{} {
 	m.mu.RLock()
@@ -111,6 +140,7 @@ func (m *MetricsCollector) GetMetrics() map[string]interface{} {
 		"throughput_bytes":     m.throughputBytes,
 		"compression_ratio":    m.compressionRatio,
 		"active_circuits":      m.activeCircuits,
+		"circuit_throughput":   m.circuitThroughput,
 	}
 }
 

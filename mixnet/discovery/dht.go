@@ -55,6 +55,7 @@ func NewRelayDiscoveryWithHost(h host.Host, protocolID string, samplingSize int,
 // FindRelays discovers potential relay nodes and selects them based on selection mode
 func (r *RelayDiscovery) FindRelays(ctx context.Context, peers []peer.AddrInfo, hopCount, circuitCount int) ([]RelayInfo, error) {
 	filtered := r.filterPeers(peers)
+	filtered = r.FilterByProtocol(filtered)
 	required := hopCount * circuitCount
 	if len(filtered) < required {
 		return nil, fmt.Errorf("insufficient relay peers: have %d, need %d", len(filtered), required)
@@ -80,6 +81,30 @@ func (r *RelayDiscovery) filterPeers(peers []peer.AddrInfo) []peer.AddrInfo {
 		}
 	}
 	return result
+}
+
+// FilterByProtocol filters peers to those that support the mixnet protocol (Req 12.2).
+// Peers not yet connected are included tentatively (verification happens at stream open).
+func (r *RelayDiscovery) FilterByProtocol(peers []peer.AddrInfo) []peer.AddrInfo {
+	if r.host == nil {
+		return peers // Can't verify without host
+	}
+	var verified []peer.AddrInfo
+	for _, p := range peers {
+		protocols, err := r.host.Peerstore().GetProtocols(p.ID)
+		if err != nil {
+			// Not connected yet, include tentatively (will fail at stream open)
+			verified = append(verified, p)
+			continue
+		}
+		for _, proto := range protocols {
+			if string(proto) == r.protocolID {
+				verified = append(verified, p)
+				break
+			}
+		}
+	}
+	return verified
 }
 
 func (r *RelayDiscovery) selectRandom(peers []peer.AddrInfo, count int) ([]RelayInfo, error) {

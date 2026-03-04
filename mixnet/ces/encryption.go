@@ -4,10 +4,11 @@ import (
 	"crypto/rand"
 	"encoding/binary"
 	"fmt"
-	"io"
 
-	"golang.org/x/crypto/chacha20poly1305"
+	"github.com/flynn/noise"
 )
+
+var mixnetCipherSuite = noise.NewCipherSuite(noise.DH25519, noise.CipherChaChaPoly, noise.HashSHA256)
 
 // LayeredEncrypter handles layered onion encryption
 type LayeredEncrypter struct {
@@ -16,8 +17,9 @@ type LayeredEncrypter struct {
 
 // EncryptionKey represents an ephemeral key for one encryption layer
 type EncryptionKey struct {
-	Key        []byte
+	Key         []byte // Curve25519 private key
 	Destination string
+	nonce       uint64 // counter-based nonce, initialized to 0
 }
 
 // NewLayeredEncrypter creates a new layered encrypter
@@ -37,14 +39,14 @@ func (e *LayeredEncrypter) Encrypt(plaintext []byte, destinations []string) ([]b
 
 	keys := make([]*EncryptionKey, e.hopCount)
 
-	// Generate ephemeral keys for each layer
+	// Generate ephemeral Curve25519 keypair for each layer (Req 16.2)
 	for i := 0; i < e.hopCount; i++ {
-		key := make([]byte, 32) // chacha20poly1305 key size
-		if _, err := io.ReadFull(rand.Reader, key); err != nil {
+		kp, err := mixnetCipherSuite.GenerateKeypair(rand.Reader)
+		if err != nil {
 			return nil, nil, err
 		}
 		keys[i] = &EncryptionKey{
-			Key:         key,
+			Key:         kp.Private,
 			Destination: destinations[i],
 		}
 	}
@@ -54,32 +56,20 @@ func (e *LayeredEncrypter) Encrypt(plaintext []byte, destinations []string) ([]b
 	currentData := plaintext
 
 	for i := e.hopCount - 1; i >= 0; i-- {
-		// Create header: [dest_len(2)][dest_len_varint][dest_bytes][data]
-		header := make([]byte, 2+binary.MaxVarintLen64+len(keys[i].Destination))
-		binary.LittleEndian.PutUint16(header[0:2], uint16(len(keys[i].Destination)))
-		offset := 2
-		// Write destination length as varint (for future use)
-		varintBuf := make([]byte, binary.MaxVarintLen64)
-		n := binary.PutUvarint(varintBuf, uint64(len(keys[i].Destination)))
-		offset += n
-		copy(header[offset:], keys[i].Destination)
-		offset += len(keys[i].Destination)
+		// Build header: [dest_len:2][dest_bytes]
+		destBytes := []byte(keys[i].Destination)
+		header := make([]byte, 2+len(destBytes))
+		binary.LittleEndian.PutUint16(header[0:2], uint16(len(destBytes)))
+		copy(header[2:], destBytes)
 
 		// Prepend header to data
-		payload := append(header[:offset], currentData...)
+		payload := append(header, currentData...)
 
-		// Encrypt with ChaCha20-Poly1305
-		aead, err := chacha20poly1305.NewX(keys[i].Key)
-		if err != nil {
-			return nil, nil, err
-		}
-
-		nonce := make([]byte, aead.NonceSize(), aead.NonceSize()+len(payload))
-		if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
-			return nil, nil, err
-		}
-
-		encrypted := aead.Seal(nonce, nonce, payload, nil)
+		// Encrypt with Noise ChaCha20-Poly1305 using counter nonce (Req 16.2)
+		var k [32]byte
+		copy(k[:], keys[i].Key)
+		noiseCipher := noise.CipherChaChaPoly.Cipher(k)
+		encrypted := noiseCipher.Encrypt(nil, keys[i].nonce, nil, payload)
 		currentData = encrypted
 	}
 
@@ -97,49 +87,26 @@ func (e *LayeredEncrypter) Decrypt(ciphertext []byte, keys []*EncryptionKey) ([]
 	currentData := ciphertext
 
 	for i := 0; i < e.hopCount; i++ {
-		aead, err := chacha20poly1305.NewX(keys[i].Key)
+		var k [32]byte
+		copy(k[:], keys[i].Key)
+		noiseCipher := noise.CipherChaChaPoly.Cipher(k)
+
+		plaintext, err := noiseCipher.Decrypt(nil, keys[i].nonce, nil, currentData)
 		if err != nil {
 			return nil, err
 		}
 
-		nonceSize := aead.NonceSize()
-		if len(currentData) < nonceSize {
-			return nil, fmt.Errorf("ciphertext too short")
-		}
-
-		nonce, ciphertext := currentData[:nonceSize], currentData[nonceSize:]
-
-		plaintext, err := aead.Open(nil, nonce, ciphertext, nil)
-		if err != nil {
-			return nil, err
-		}
-
-		// Extract destination from header
+		// Extract destination from header: [dest_len:2][dest_bytes][data]
 		if len(plaintext) < 2 {
 			return nil, fmt.Errorf("invalid header: too short")
 		}
-		offset := 0
 		destLen := int(binary.LittleEndian.Uint16(plaintext[0:2]))
-		offset += 2
-
-		_, n := binary.Uvarint(plaintext[offset:])
-		if n <= 0 {
-			return nil, fmt.Errorf("invalid varint in header")
-		}
-		offset += n
-
-		if len(plaintext) < offset+destLen {
+		if len(plaintext) < 2+destLen {
 			return nil, fmt.Errorf("invalid destination length")
 		}
 
-		// Verify destination matches (optional security check)
-		extractedDest := string(plaintext[offset : offset+destLen])
-		if extractedDest != keys[i].Destination {
-			// Continue anyway - this is a integrity check, not a security bypass
-		}
-
 		// Remaining is the decrypted payload for next layer
-		currentData = plaintext[offset+destLen:]
+		currentData = plaintext[2+destLen:]
 	}
 
 	return currentData, nil

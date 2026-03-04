@@ -3,6 +3,7 @@ package mixnet
 import (
 	"context"
 	"fmt"
+	"log"
 	"sync"
 	"time"
 
@@ -20,6 +21,58 @@ import (
 	mh "github.com/multiformats/go-multihash"
 )
 
+// KeyManager manages per-circuit ephemeral encryption keys (Req 16.1, 16.4).
+type KeyManager struct {
+	circuitKeys map[string][][]*ces.EncryptionKey // circuitID → per-shard keys
+	mu          sync.Mutex
+}
+
+// NewKeyManager creates a new KeyManager.
+func NewKeyManager() *KeyManager {
+	return &KeyManager{
+		circuitKeys: make(map[string][][]*ces.EncryptionKey),
+	}
+}
+
+// StoreCircuitKeys stores per-shard keys for a circuit.
+func (km *KeyManager) StoreCircuitKeys(circuitID string, keys [][]*ces.EncryptionKey) {
+	km.mu.Lock()
+	defer km.mu.Unlock()
+	km.circuitKeys[circuitID] = keys
+}
+
+// GetCircuitKeys returns per-shard keys for a circuit.
+func (km *KeyManager) GetCircuitKeys(circuitID string) ([][]*ces.EncryptionKey, bool) {
+	km.mu.Lock()
+	defer km.mu.Unlock()
+	k, ok := km.circuitKeys[circuitID]
+	return k, ok
+}
+
+// EraseCircuitKeys securely erases all keys for a circuit (Req 16.3).
+func (km *KeyManager) EraseCircuitKeys(circuitID string) {
+	km.mu.Lock()
+	defer km.mu.Unlock()
+	if keys, ok := km.circuitKeys[circuitID]; ok {
+		for _, shardKeys := range keys {
+			ces.EraseKeys(shardKeys)
+		}
+		delete(km.circuitKeys, circuitID)
+	}
+}
+
+// EraseAllKeys securely erases all stored keys.
+func (km *KeyManager) EraseAllKeys() {
+	km.mu.Lock()
+	defer km.mu.Unlock()
+	for id, keys := range km.circuitKeys {
+		for _, shardKeys := range keys {
+			ces.EraseKeys(shardKeys)
+		}
+		delete(km.circuitKeys, id)
+	}
+}
+
 // Mixnet is the main mixnet implementation
 type Mixnet struct {
 	config       *MixnetConfig
@@ -30,6 +83,8 @@ type Mixnet struct {
 	relayHandler *relay.Handler
 	discovery    *discovery.RelayDiscovery
 	metrics      *MetricsCollector
+	keyManager   *KeyManager
+	privacyMgr   *PrivacyManager
 
 	// For origin mode
 	originCtx    context.Context
@@ -106,6 +161,8 @@ func NewMixnet(cfg *MixnetConfig, h host.Host, r routing.Routing) (*Mixnet, erro
 		relayHandler: relayHandler,
 		discovery:    relayDiscovery,
 		metrics:      metrics,
+		keyManager:   NewKeyManager(),
+		privacyMgr:   NewPrivacyManager(DefaultPrivacyConfig()),
 		originCtx:    originCtx,
 		originCancel: originCancel,
 		destHandler: &DestinationHandler{
@@ -127,6 +184,23 @@ func NewMixnet(cfg *MixnetConfig, h host.Host, r routing.Routing) (*Mixnet, erro
 
 	// Start the destination handler goroutine with a controlled lifetime.
 	go m.destHandler.waitForData()
+
+	// Start circuit health monitor (Req 10.1).
+	m.circuitMgr.StartHealthMonitor(10*time.Second, func(circuitID string) {
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			m.mu.RLock()
+			dests := make([]peer.ID, 0, len(m.activeConnections))
+			for dest := range m.activeConnections {
+				dests = append(dests, dest)
+			}
+			m.mu.RUnlock()
+			for _, dest := range dests {
+				_ = m.RecoverFromFailure(ctx, dest)
+			}
+		}()
+	})
 
 	return m, nil
 }
@@ -260,76 +334,95 @@ func (m *Mixnet) getSampleRelays(ctx context.Context, dest peer.ID) ([]circuit.R
 	return nil, fmt.Errorf("no DHT configured and no sample relays available")
 }
 
-// Send sends data through the mixnet to the destination (Req 8)
+// Send sends data through the mixnet to the destination using per-circuit routing (Req 8, 14)
 func (m *Mixnet) Send(ctx context.Context, dest peer.ID, data []byte) error {
 	circuits := m.circuitMgr.ListCircuits()
-	if len(circuits) == 0 {
-		return fmt.Errorf("no circuits established")
+	activeCircuits := make([]*circuit.Circuit, 0)
+	for _, c := range circuits {
+		if c.IsActive() {
+			activeCircuits = append(activeCircuits, c)
+		}
+	}
+	if len(activeCircuits) == 0 {
+		return ErrNoCircuitsEstablished
 	}
 
-	// Get destinations for each circuit (ordered: entry -> exit)
-	destinations := make([]string, m.config.HopCount)
-	for i := 0; i < m.config.HopCount; i++ {
-		destinations[i] = dest.String()
-	}
-
-	// Record original size for compression metrics
 	originalSize := len(data)
+	sendCount := len(activeCircuits)
 
-	// Process through CES pipeline (Req 3)
-	shards, keys, err := m.pipeline.ProcessWithKeys(data, destinations)
+	// Build per-circuit routing paths (Req 14.1 - each relay only knows next hop)
+	circuitPaths := make([][]string, sendCount)
+	for i, circ := range activeCircuits {
+		path := make([]string, m.config.HopCount)
+		for j := 0; j < m.config.HopCount; j++ {
+			if j < len(circ.Peers)-1 {
+				path[j] = circ.Peers[j+1].String()
+			} else {
+				path[j] = dest.String()
+			}
+		}
+		circuitPaths[i] = path
+	}
+
+	// Process through CES pipeline with per-circuit encryption (Req 14)
+	shards, perShardKeys, err := m.pipeline.ProcessPerCircuit(data, circuitPaths)
 	if err != nil {
 		return fmt.Errorf("CES pipeline failed: %w", err)
 	}
 
-	// Erase keys after sending; destination will use the keys delivered
-	// out-of-band via SetKeys (Req 16.3).
-	defer ces.EraseKeys(keys)
+	// Store per-circuit keys in KeyManager (Req 16.1)
+	for i, circ := range activeCircuits {
+		if i < len(perShardKeys) && perShardKeys[i] != nil {
+			m.keyManager.StoreCircuitKeys(circ.ID, [][]*ces.EncryptionKey{perShardKeys[i]})
+		}
+	}
 
 	// Record compression ratio
 	m.metrics.RecordCompressionRatio(originalSize, len(data))
-
-	// Store keys for destination to decrypt
-	m.destHandler.SetKeys("default", keys)
-
-	// Only send as many shards as we have circuits; excess shards are dropped
-	// with an explicit log so silent data loss is avoided (Req 2.4).
-	sendCount := len(shards)
-	if len(circuits) < sendCount {
-		sendCount = len(circuits)
-	}
 
 	// Transmit shards in parallel across circuits (Req 8)
 	var wg sync.WaitGroup
 	errCh := make(chan error, sendCount)
 
-	for i := 0; i < sendCount; i++ {
-		circuitID := circuits[i].ID
+	for i := 0; i < sendCount && i < len(shards); i++ {
+		circuitID := activeCircuits[i].ID
 		shard := shards[i]
 
 		wg.Add(1)
-		go func(shardData []byte, circuitID string, idx int) {
+		go func(shardData []byte, cID string, idx int) {
 			defer wg.Done()
 
-			// Write shard with 4-byte index header
+			// Apply per-stream write deadline (Req 8.2).
+			if stream, ok := m.circuitMgr.GetStream(cID); ok && stream != nil {
+				stream.Stream().SetDeadline(time.Now().Add(30 * time.Second))
+			}
+
+			// Build routing packet: [shard_idx:4][shard_data]
 			header := make([]byte, 4)
 			header[0] = byte(idx)
 			header[1] = byte(idx >> 8)
 			header[2] = byte(idx >> 16)
 			header[3] = byte(idx >> 24)
-
 			fullData := append(header, shardData...)
 
-			// Apply per-stream write deadline (Req 8.2).
-			if stream, ok := m.circuitMgr.GetStream(circuitID); ok && stream != nil {
-				stream.Stream().SetDeadline(time.Now().Add(30 * time.Second))
+			var sendErr error
+			maxRetries := 3
+			for attempt := 0; attempt < maxRetries; attempt++ {
+				sendErr = m.circuitMgr.SendData(cID, fullData)
+				if sendErr == nil {
+					break
+				}
+				if !IsRetryable(ErrTransportFailed(sendErr.Error())) {
+					break
+				}
+				time.Sleep(time.Duration(attempt+1) * 100 * time.Millisecond)
 			}
-
-			if err := m.circuitMgr.SendData(circuitID, fullData); err != nil {
-				errCh <- fmt.Errorf("failed to send on circuit %s: %w", circuitID, err)
+			if sendErr != nil {
+				errCh <- fmt.Errorf("failed to send on circuit %s: %w", cID, sendErr)
 				return
 			}
 			m.metrics.RecordThroughput(uint64(len(fullData)))
+			m.metrics.RecordCircuitThroughput(cID, uint64(len(fullData)))
 		}(shard.Data, circuitID, i)
 	}
 
@@ -341,7 +434,6 @@ func (m *Mixnet) Send(ctx context.Context, dest peer.ID, data []byte) error {
 			return err
 		}
 	}
-
 	return nil
 }
 
@@ -360,6 +452,7 @@ func (m *Mixnet) handleIncomingStream(stream network.Stream) {
 	buf := make([]byte, 64*1024)
 	n, err := stream.Read(buf)
 	if err != nil {
+		log.Printf("mixnet: handleIncomingStream: read error: %v", err)
 		return
 	}
 
@@ -368,6 +461,7 @@ func (m *Mixnet) handleIncomingStream(stream network.Stream) {
 	// Parse shard header to get index
 	shard, err := m.parseShard(shardData)
 	if err != nil {
+		log.Printf("mixnet: handleIncomingStream: parse shard error: %v", err)
 		return
 	}
 
@@ -377,6 +471,7 @@ func (m *Mixnet) handleIncomingStream(stream network.Stream) {
 	// Check if we can reconstruct
 	data, err := m.destHandler.TryReconstruct("default")
 	if err != nil {
+		log.Printf("mixnet: handleIncomingStream: reconstruct error: %v", err)
 		return
 	}
 
@@ -430,11 +525,43 @@ func (h *DestinationHandler) DataChan() <-chan []byte {
 	return h.dataCh
 }
 
+// sendCloseSignals sends a graceful close to all active circuits with ack waiting (Req 18.2).
+func (m *Mixnet) sendCloseSignals() {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	closeSignal := []byte{0xFF, 0x00, 0x00, 0x00}
+
+	for _, circuits := range m.activeConnections {
+		for _, c := range circuits {
+			if !c.IsActive() {
+				continue
+			}
+			go func(circuitID string) {
+				_ = m.circuitMgr.SendData(circuitID, closeSignal)
+				if handler, ok := m.circuitMgr.GetStream(circuitID); ok && handler != nil {
+					s := handler.Stream()
+					s.CloseWrite()
+					// Wait for relay to close its write end (ack signal, Req 18.2)
+					s.SetDeadline(time.Now().Add(10 * time.Second))
+					buf := make([]byte, 1)
+					s.Read(buf) // returns err when relay closes; that's the ack
+				}
+			}(c.ID)
+		}
+	}
+	// Brief wait so goroutines can start before we close streams
+	time.Sleep(500 * time.Millisecond)
+}
+
 // Close closes the mixnet (Req 18)
 func (m *Mixnet) Close() error {
 	if m.originCancel != nil {
 		m.originCancel()
 	}
+
+	// Send graceful close signals to all active circuits (Req 18.2).
+	m.sendCloseSignals()
 
 	// Stop the destination handler goroutine (Req 18).
 	if m.destHandler != nil && m.destHandler.stopCh != nil {
@@ -449,6 +576,11 @@ func (m *Mixnet) Close() error {
 			delete(m.destHandler.keys, sessionID)
 		}
 		m.destHandler.mu.Unlock()
+	}
+
+	// Erase all KeyManager keys (Req 16.3).
+	if m.keyManager != nil {
+		m.keyManager.EraseAllKeys()
 	}
 
 	// Unregister the protocol handler (Req 12).

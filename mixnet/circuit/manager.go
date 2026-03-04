@@ -2,15 +2,18 @@ package circuit
 
 import (
 	"context"
+	"encoding/binary"
 	"fmt"
 	"math/rand"
 	"sync"
 	"time"
 
+	"github.com/flynn/noise"
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/core/protocol"
+	noiseutil "github.com/libp2p/go-libp2p/mixnet/internal/noiseutil"
 
 	"github.com/multiformats/go-multiaddr"
 )
@@ -34,6 +37,8 @@ type CircuitConfig struct {
 type StreamHandler struct {
 	stream network.Stream
 	peerID peer.ID
+	sendCS *noise.CipherState // For encrypting data to peer (Req 16.2)
+	recvCS *noise.CipherState // For decrypting data from peer (Req 16.2)
 }
 
 // Stream returns the underlying network stream
@@ -156,17 +161,26 @@ func (m *CircuitManager) EstablishCircuit(circuit *Circuit, dest peer.ID, protoc
 		return fmt.Errorf("failed to open stream to %s: %w", entryPeer, err)
 	}
 
+	// Perform Noise NN handshake; circuit manager is always the initiator (Req 16.2)
+	sendCS, recvCS, err := noiseutil.PerformHandshake(stream, true)
+	if err != nil {
+		stream.Close()
+		return fmt.Errorf("noise handshake failed for circuit %s: %w", circuit.ID, err)
+	}
+
 	m.mu.Lock()
 	m.streams[circuit.ID] = &StreamHandler{
 		stream: stream,
 		peerID: entryPeer,
+		sendCS: sendCS,
+		recvCS: recvCS,
 	}
 	m.mu.Unlock()
 
 	return nil
 }
 
-// SendData sends encrypted data through a circuit
+// SendData sends encrypted data through a circuit using Noise cipher state (Req 16.2)
 func (m *CircuitManager) SendData(circuitID string, data []byte) error {
 	m.mu.RLock()
 	handler, ok := m.streams[circuitID]
@@ -176,7 +190,22 @@ func (m *CircuitManager) SendData(circuitID string, data []byte) error {
 		return fmt.Errorf("no stream for circuit %s", circuitID)
 	}
 
-	_, err := handler.stream.Write(data)
+	// Encrypt with Noise cipher state if available
+	var out []byte
+	if handler.sendCS != nil {
+		var err error
+		out, err = handler.sendCS.Encrypt(nil, nil, data)
+		if err != nil {
+			return fmt.Errorf("noise encrypt failed: %w", err)
+		}
+	} else {
+		out = data
+	}
+
+	// Length-prefix the encrypted message (2-byte big-endian)
+	lenBuf := make([]byte, 2)
+	binary.BigEndian.PutUint16(lenBuf, uint16(len(out)))
+	_, err := handler.stream.Write(append(lenBuf, out...))
 	return err
 }
 
@@ -384,6 +413,74 @@ func (m *CircuitManager) RebuildCircuit(failedID string) (*Circuit, error) {
 	m.circuits[circuit.ID] = circuit
 
 	return circuit, nil
+}
+
+// StartHealthMonitor starts a goroutine that periodically probes active circuits (Req 10.1).
+// checkInterval sets the probe frequency; failureCallback is called (if non-nil)
+// whenever a circuit probe fails and the circuit is marked failed.
+func (m *CircuitManager) StartHealthMonitor(checkInterval time.Duration, failureCallback func(circuitID string)) {
+	go func() {
+		ticker := time.NewTicker(checkInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-m.ctx.Done():
+				return
+			case <-ticker.C:
+				m.mu.RLock()
+				active := make([]string, 0)
+				for id, c := range m.circuits {
+					if c.IsActive() {
+						active = append(active, id)
+					}
+				}
+				m.mu.RUnlock()
+
+				for _, circuitID := range active {
+					m.mu.RLock()
+					handler, ok := m.streams[circuitID]
+					m.mu.RUnlock()
+					if !ok || handler == nil || handler.stream == nil {
+						continue
+					}
+
+					// Set a short write deadline for the probe
+					handler.stream.SetWriteDeadline(time.Now().Add(5 * time.Second))
+					probe := []byte{0xFE}
+					_, err := handler.stream.Write(probe)
+					handler.stream.SetWriteDeadline(time.Time{}) // clear deadline
+					if err != nil {
+						m.MarkCircuitFailed(circuitID)
+						if failureCallback != nil {
+							failureCallback(circuitID)
+						}
+					}
+				}
+			}
+		}
+	}()
+}
+
+// GetSendCipherState returns the Noise send cipher state for a circuit (Req 16.2).
+func (m *CircuitManager) GetSendCipherState(circuitID string) (*noise.CipherState, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	handler, ok := m.streams[circuitID]
+	if !ok || handler == nil {
+		return nil, false
+	}
+	return handler.sendCS, handler.sendCS != nil
+}
+
+// GetRecvCipherState returns the Noise receive cipher state for a circuit (Req 16.2).
+func (m *CircuitManager) GetRecvCipherState(circuitID string) (*noise.CipherState, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	handler, ok := m.streams[circuitID]
+	if !ok || handler == nil {
+		return nil, false
+	}
+	return handler.recvCS, handler.recvCS != nil
 }
 
 // Close closes all circuits

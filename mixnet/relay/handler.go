@@ -11,6 +11,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
+	noiseutil "github.com/libp2p/go-libp2p/mixnet/internal/noiseutil"
 )
 
 const (
@@ -56,8 +57,9 @@ func NewHandler(host host.Host, maxCircuits int, maxBandwidth int64) *Handler {
 }
 
 // HandleStream handles an incoming relay stream.
-// Implements zero-knowledge forwarding: read next-hop destination and stream
-// the remaining encrypted payload to the next hop without buffering (Req 7.4, 20.4).
+// Performs a Noise NN handshake (relay is responder), then reads a
+// length-prefixed encrypted routing packet, decrypts it, and forwards
+// the payload to the next hop (Req 7.4, 14.3, 16.2, 20.4).
 func (h *Handler) HandleStream(ctx context.Context, stream network.Stream) error {
 	defer stream.Close()
 
@@ -85,36 +87,51 @@ func (h *Handler) HandleStream(ctx context.Context, stream network.Stream) error
 	// Set a read deadline so the relay cannot be held open indefinitely (Req 6.3).
 	stream.SetDeadline(time.Now().Add(ReadTimeout))
 
-	// Read destination length (2 bytes, little-endian).
-	destLenBuf := make([]byte, 2)
-	if _, err := io.ReadFull(stream, destLenBuf); err != nil {
-		return fmt.Errorf("failed to read destination length: %w", err)
+	// Noise NN handshake; relay is always the responder (Req 16.2).
+	_, recvCS, err := noiseutil.PerformHandshake(stream, false)
+	if err != nil {
+		return fmt.Errorf("noise handshake failed: %w", err)
 	}
 
-	destLen := binary.LittleEndian.Uint16(destLenBuf)
-	if destLen == 0 || destLen > 512 {
+	// Read length-prefixed encrypted routing packet.
+	lenBuf := make([]byte, 2)
+	if _, err := io.ReadFull(stream, lenBuf); err != nil {
+		return fmt.Errorf("failed to read routing packet length: %w", err)
+	}
+	encLen := binary.BigEndian.Uint16(lenBuf)
+	encBuf := make([]byte, encLen)
+	if _, err := io.ReadFull(stream, encBuf); err != nil {
+		return fmt.Errorf("failed to read routing packet: %w", err)
+	}
+
+	// Decrypt routing header (Req 14.3).
+	decrypted, err := recvCS.Decrypt(nil, nil, encBuf)
+	if err != nil {
+		return fmt.Errorf("failed to decrypt routing header: %w", err)
+	}
+
+	// Parse: [dest_len:2][dest_bytes][payload]
+	if len(decrypted) < 2 {
+		return fmt.Errorf("decrypted routing packet too short")
+	}
+	destLen := binary.LittleEndian.Uint16(decrypted[0:2])
+	if int(destLen) > len(decrypted)-2 {
 		return fmt.Errorf("invalid destination length: %d", destLen)
 	}
-
-	destBuf := make([]byte, destLen)
-	if _, err := io.ReadFull(stream, destBuf); err != nil {
-		return fmt.Errorf("failed to read destination: %w", err)
-	}
-
-	nextHop := string(destBuf)
+	nextHop := string(decrypted[2 : 2+destLen])
+	payload := decrypted[2+destLen:]
 
 	// Parse the next hop as a peer ID; fall back to multiaddr parsing.
 	nextPeer, err := peer.Decode(nextHop)
 	if err != nil {
-		return h.forwardByAddress(ctx, nextHop, stream)
+		return h.forwardByAddress(ctx, nextHop, payload)
 	}
 
-	return h.forwardToPeerStream(ctx, nextPeer, stream)
+	return h.forwardToPeerStream(ctx, nextPeer, payload)
 }
 
-// forwardToPeerStream opens a stream to nextPeer and pipes the remaining
-// encrypted payload directly without buffering (Req 7.4, 20.4).
-func (h *Handler) forwardToPeerStream(ctx context.Context, nextPeer peer.ID, src network.Stream) error {
+// forwardToPeerStream opens a stream to nextPeer and writes the decrypted payload (Req 7.4, 14.3, 20.4).
+func (h *Handler) forwardToPeerStream(ctx context.Context, nextPeer peer.ID, payload []byte) error {
 	h.mu.RLock()
 	host := h.host
 	maxBandwidth := h.maxBandwidth
@@ -144,15 +161,14 @@ func (h *Handler) forwardToPeerStream(ctx context.Context, nextPeer peer.ID, src
 		writer = &rateLimitedWriter{w: dst, bytesPerSec: maxBandwidth}
 	}
 
-	if _, err := io.Copy(writer, src); err != nil {
+	if _, err := writer.Write(payload); err != nil {
 		return fmt.Errorf("failed to forward payload: %w", err)
 	}
 	return nil
 }
 
-// forwardByAddress parses addr as a multiaddr peer info string and streams
-// the payload there without buffering.
-func (h *Handler) forwardByAddress(ctx context.Context, addr string, src network.Stream) error {
+// forwardByAddress parses addr as a multiaddr peer info string and forwards the payload there.
+func (h *Handler) forwardByAddress(ctx context.Context, addr string, payload []byte) error {
 	h.mu.RLock()
 	host := h.host
 	h.mu.RUnlock()
@@ -179,7 +195,7 @@ func (h *Handler) forwardByAddress(ctx context.Context, addr string, src network
 	}
 	defer dst.Close()
 
-	if _, err := io.Copy(dst, src); err != nil {
+	if _, err := dst.Write(payload); err != nil {
 		return fmt.Errorf("failed to forward payload: %w", err)
 	}
 	return nil
