@@ -532,12 +532,15 @@ func (m *Mixnet) sendCloseSignals() {
 
 	closeSignal := []byte{0xFF, 0x00, 0x00, 0x00}
 
+	var wg sync.WaitGroup
 	for _, circuits := range m.activeConnections {
 		for _, c := range circuits {
 			if !c.IsActive() {
 				continue
 			}
+			wg.Add(1)
 			go func(circuitID string) {
+				defer wg.Done()
 				_ = m.circuitMgr.SendData(circuitID, closeSignal)
 				if handler, ok := m.circuitMgr.GetStream(circuitID); ok && handler != nil {
 					s := handler.Stream()
@@ -550,8 +553,7 @@ func (m *Mixnet) sendCloseSignals() {
 			}(c.ID)
 		}
 	}
-	// Brief wait so goroutines can start before we close streams
-	time.Sleep(500 * time.Millisecond)
+	wg.Wait()
 }
 
 // Close closes the mixnet (Req 18)

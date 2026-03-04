@@ -199,6 +199,7 @@ func (m *CircuitManager) SendData(circuitID string, data []byte) error {
 			return fmt.Errorf("noise encrypt failed: %w", err)
 		}
 	} else {
+		// No Noise session (e.g. test mode without real streams); send plaintext
 		out = data
 	}
 
@@ -437,18 +438,9 @@ func (m *CircuitManager) StartHealthMonitor(checkInterval time.Duration, failure
 				m.mu.RUnlock()
 
 				for _, circuitID := range active {
-					m.mu.RLock()
-					handler, ok := m.streams[circuitID]
-					m.mu.RUnlock()
-					if !ok || handler == nil || handler.stream == nil {
-						continue
-					}
-
-					// Set a short write deadline for the probe
-					handler.stream.SetWriteDeadline(time.Now().Add(5 * time.Second))
+					// Send a 1-byte probe through the encrypted Noise channel
 					probe := []byte{0xFE}
-					_, err := handler.stream.Write(probe)
-					handler.stream.SetWriteDeadline(time.Time{}) // clear deadline
+					err := m.SendData(circuitID, probe)
 					if err != nil {
 						m.MarkCircuitFailed(circuitID)
 						if failureCallback != nil {

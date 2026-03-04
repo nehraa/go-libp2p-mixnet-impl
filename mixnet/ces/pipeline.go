@@ -141,11 +141,12 @@ func (p *CESPipeline) ProcessPerCircuit(data []byte, circuitPaths [][]string) ([
 	}
 
 	// Step 3: Encrypt each shard independently with its circuit path
+	if len(circuitPaths) < len(shards) {
+		return nil, nil, fmt.Errorf("insufficient circuit paths: have %d, need %d for %d shards",
+			len(circuitPaths), len(shards), len(shards))
+	}
 	perShardKeys := make([][]*EncryptionKey, len(shards))
 	for i := range shards {
-		if i >= len(circuitPaths) {
-			break
-		}
 		encrypted, keys, err := p.encrypter.Encrypt(shards[i].Data, circuitPaths[i])
 		if err != nil {
 			return nil, nil, fmt.Errorf("encryption failed for shard %d: %w", i, err)
