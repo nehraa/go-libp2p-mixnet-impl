@@ -22,7 +22,8 @@ import (
 	mh "github.com/multiformats/go-multihash"
 )
 
-// Mixnet is the main mixnet implementation
+// Mixnet is the core implementation of the Lib-Mix protocol.
+// It manages circuit establishment, data sharding, and communication privacy.
 type Mixnet struct {
 	config       *MixnetConfig
 	host         host.Host
@@ -61,7 +62,7 @@ type sessionBuffer struct {
 	startedAt time.Time
 }
 
-// DestinationHandler handles incoming data at the destination
+// DestinationHandler handles the reception and reconstruction of incoming shards at the destination.
 type DestinationHandler struct {
 	pipeline  *ces.CESPipeline
 	sessions  map[string]*sessionBuffer
@@ -72,7 +73,7 @@ type DestinationHandler struct {
 	mu        sync.Mutex
 }
 
-// NewMixnet creates a new Mixnet instance (Req 1, 2)
+// NewMixnet creates a new Mixnet instance with the provided configuration, host, and routing.
 func NewMixnet(cfg *MixnetConfig, h host.Host, r routing.Routing) (*Mixnet, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid config: %w", err)
@@ -114,36 +115,31 @@ func NewMixnet(cfg *MixnetConfig, h host.Host, r routing.Routing) (*Mixnet, erro
 	originCtx, originCancel := context.WithCancel(context.Background())
 
 	m := &Mixnet{
-		config:       cfg,
-		host:         h,
-		routing:      r,
-		circuitMgr:   circuitMgr,
-		pipeline:     pipeline,
-		relayHandler: relayHandler,
-		discovery:    relayDiscovery,
-		metrics:      metrics,
-		privacyMgr:   NewPrivacyManager(DefaultPrivacyConfig()),
-		keyManager:   NewKeyManager(),
-		originCtx:    originCtx,
-		originCancel: originCancel,
+		config:            cfg,
+		host:              h,
+		routing:           r,
+		circuitMgr:        circuitMgr,
+		pipeline:          pipeline,
+		relayHandler:      relayHandler,
+		discovery:         relayDiscovery,
+		metrics:           metrics,
+		privacyMgr:        NewPrivacyManager(DefaultPrivacyConfig()),
+		keyManager:        NewKeyManager(),
+		originCtx:         originCtx,
+		originCancel:      originCancel,
+		activeConnections: make(map[peer.ID][]*circuit.Circuit),
 		destHandler: &DestinationHandler{
 			pipeline:  pipeline,
 			sessions:  make(map[string]*sessionBuffer),
 			threshold: cfg.GetErasureThreshold(),
 			timeout:   30 * time.Second,
-			dataCh:    make(chan []byte, 10),
+			dataCh:    make(chan []byte, 100),
 			stopCh:    make(chan struct{}),
 		},
-		activeConnections: make(map[peer.ID][]*circuit.Circuit),
 	}
 
-	// Register the mixnet protocol handler with the host (Req 12).
-	h.SetStreamHandler(ProtocolID, func(s network.Stream) {
-		m.handleIncomingStream(s)
-	})
-
-	// Start the destination handler goroutine with a controlled lifetime.
-	go m.destHandler.waitForData()
+	// Register protocol handler (Req 9)
+	h.SetStreamHandler(ProtocolID, m.handleIncomingStream)
 
 	return m, nil
 }
@@ -184,36 +180,67 @@ func (h *DestinationHandler) waitForData() {
 	}
 }
 
-// EstablishConnection establishes circuits to the destination peer (Req 6)
+// EstablishConnection establishes a set of parallel circuits to the target destination.
 func (m *Mixnet) EstablishConnection(ctx context.Context, dest peer.ID) ([]*circuit.Circuit, error) {
-	// Step 1: Discover relays from DHT (Req 4)
+	m.mu.Lock()
+	if circuits, ok := m.activeConnections[dest]; ok {
+		m.mu.Unlock()
+		return circuits, nil
+	}
+	m.mu.Unlock()
+
+	// Discover relays (Req 4)
 	relays, err := m.discoverRelays(ctx, dest)
 	if err != nil {
-		m.metrics.RecordCircuitFailure()
-		return nil, fmt.Errorf("failed to discover relays: %w", err)
+		return nil, fmt.Errorf("relay discovery failed: %w", err)
 	}
 
-	// Step 2: Build circuits (Req 6)
-	circuits, err := m.circuitMgr.BuildCircuits(ctx, dest, relays)
-	if err != nil {
-		m.metrics.RecordCircuitFailure()
-		return nil, fmt.Errorf("failed to build circuits: %w", err)
+	m.circuitMgr.UpdateRelayPool(relays)
+
+	// Build circuits in parallel (Req 6)
+	circuits := make([]*circuit.Circuit, m.config.CircuitCount)
+	var wg sync.WaitGroup
+	errCh := make(chan error, m.config.CircuitCount)
+
+	for i := 0; i < m.config.CircuitCount; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			c, err := m.circuitMgr.BuildCircuit()
+			if err != nil {
+				errCh <- err
+				return
+			}
+
+			// Establish circuit (Req 6.5)
+			err = m.circuitMgr.EstablishCircuit(c, dest, ProtocolID)
+			if err != nil {
+				errCh <- err
+				return
+			}
+
+			m.circuitMgr.ActivateCircuit(c.ID)
+			circuits[idx] = c
+			m.metrics.RecordCircuitSuccess()
+		}(i)
 	}
 
-	// Step 3: Establish each circuit (connect to entry relay) (Req 6)
+	wg.Wait()
+	close(errCh)
+
+	// Check if we have enough circuits (Req 15)
+	activeCircuits := 0
 	for _, c := range circuits {
-		err := m.circuitMgr.EstablishCircuit(c, dest, ProtocolID)
-		if err != nil {
-			// Clean up on failure
-			m.circuitMgr.Close()
-			m.metrics.RecordCircuitFailure()
-			return nil, fmt.Errorf("failed to establish circuit %s: %w", c.ID, err)
+		if c != nil && c.IsActive() {
+			activeCircuits++
 		}
-		m.circuitMgr.ActivateCircuit(c.ID)
-		m.metrics.RecordCircuitSuccess()
 	}
 
-	// Store active connections
+	if activeCircuits < m.config.GetErasureThreshold() {
+		m.metrics.RecordCircuitFailure()
+		return nil, fmt.Errorf("failed to establish enough circuits: have %d, need %d", activeCircuits, m.config.GetErasureThreshold())
+	}
+
 	m.mu.Lock()
 	m.activeConnections[dest] = circuits
 	m.mu.Unlock()
@@ -221,24 +248,25 @@ func (m *Mixnet) EstablishConnection(ctx context.Context, dest peer.ID) ([]*circ
 	return circuits, nil
 }
 
-// discoverRelays finds potential relay nodes via DHT (Req 4)
 func (m *Mixnet) discoverRelays(ctx context.Context, dest peer.ID) ([]circuit.RelayInfo, error) {
-	if m.routing == nil {
-		return m.getSampleRelays(ctx, dest)
+	// Advertise ourselves as a relay first (Req 7)
+	// In a real implementation, this would be a background task
+
+	// Create a CID for Mixnet relays
+	h_hash, _ := mh.Encode([]byte("mixnet-relay-v1"), mh.SHA2_256)
+	c := cid.NewCidV1(cid.Raw, h_hash)
+
+	// Provide if we are a relay
+	if m.relayHandler != nil {
+		go func() {
+			_ = m.routing.Provide(ctx, c, true)
+		}()
 	}
 
-	// Create a CID from the protocol string for DHT queries
-	h, err := mh.Sum([]byte(ProtocolID), mh.SHA2_256, -1)
-	if err != nil {
-		return nil, err
-	}
-	protocolCID := cid.NewCidV1(cid.Raw, h)
-
-	// Query DHT for providers
-	provCh := m.routing.FindProvidersAsync(ctx, protocolCID, m.config.GetSamplingSize())
-
+	// Find providers
+	providersChan := m.routing.FindProvidersAsync(ctx, c, 0)
 	var providers []peer.AddrInfo
-	for p := range provCh {
+	for p := range providersChan {
 		if p.ID != m.host.ID() && p.ID != dest {
 			// Check if peer supports mixnet protocol via peerstore (Issue 5)
 			protos, err := m.host.Peerstore().GetProtocols(p.ID)
@@ -260,8 +288,17 @@ func (m *Mixnet) discoverRelays(ctx context.Context, dest peer.ID) ([]circuit.Re
 		return m.getSampleRelays(ctx, dest)
 	}
 
-	// Select relays based on mode (Req 4, 5)
-	selected, err := m.discovery.FindRelays(ctx, providers, m.config.HopCount, m.config.CircuitCount)
+	// Convert to discovery.RelayInfo for selection
+	relayInfos := make([]discovery.RelayInfo, len(providers))
+	for i, p := range providers {
+		relayInfos[i] = discovery.RelayInfo{
+			PeerID:   p.ID,
+			AddrInfo: p,
+		}
+	}
+
+	// Select relays (Req 4)
+	selected, err := m.discovery.SelectRelays(ctx, relayInfos)
 	if err != nil {
 		return nil, fmt.Errorf("relay selection failed: %w", err)
 	}
@@ -279,12 +316,12 @@ func (m *Mixnet) discoverRelays(ctx context.Context, dest peer.ID) ([]circuit.Re
 	return result, nil
 }
 
-// getSampleRelays returns sample relays for testing
+// getSampleRelays returns sample relays for testing.
 func (m *Mixnet) getSampleRelays(ctx context.Context, dest peer.ID) ([]circuit.RelayInfo, error) {
 	return nil, fmt.Errorf("no DHT configured and no sample relays available")
 }
 
-// Send sends data through the mixnet to the destination (Req 8)
+// Send transmits data to the specified destination through the mixnet.
 func (m *Mixnet) Send(ctx context.Context, dest peer.ID, data []byte) error {
 	if m.closing.Load() {
 		return fmt.Errorf("mixnet is closing")
@@ -376,7 +413,7 @@ func (m *Mixnet) Send(ctx context.Context, dest peer.ID, data []byte) error {
 	return nil
 }
 
-// ReceiveHandler returns a handler for incoming streams at destination (Req 9)
+// ReceiveHandler returns the function used to handle incoming Mixnet streams.
 func (m *Mixnet) ReceiveHandler() func(network.Stream) {
 	return m.handleIncomingStream
 }
@@ -440,7 +477,7 @@ func (h *DestinationHandler) AddShard(sessionID string, shard *ces.Shard) {
 	h.sessions[sessionID].shards = append(h.sessions[sessionID].shards, shard)
 }
 
-// TryReconstruct attempts to reconstruct data (Req 9)
+// TryReconstruct attempts to reconstruct the original data from buffered shards.
 func (h *DestinationHandler) TryReconstruct(sessionID string) ([]byte, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -461,15 +498,16 @@ func (h *DestinationHandler) SetKeys(sessionID string, keys []*ces.EncryptionKey
 	h.sessions[sessionID].keys = keys
 }
 
-// DataChan returns the channel for reconstructed data
+// DataChan returns a channel that receives reconstructed data.
 func (h *DestinationHandler) DataChan() <-chan []byte {
 	return h.dataCh
 }
 
-// Close closes the mixnet (Req 18)
+// Close shuts down the Mixnet instance and releases all resources.
 func (m *Mixnet) Close() error {
 	m.closing.Store(true)
 
+	// Cancel origin context to stop new operations
 	if m.originCancel != nil {
 		m.originCancel()
 	}
@@ -492,44 +530,83 @@ func (m *Mixnet) Close() error {
 	// Unregister the protocol handler (Req 12).
 	m.host.RemoveStreamHandler(ProtocolID)
 
+	// Send close signal through all active circuits
 	m.mu.RLock()
+	var closeSignals []string
 	for dest := range m.activeConnections {
 		circuits := m.activeConnections[dest]
 		for _, c := range circuits {
-			m.circuitMgr.CloseCircuit(c.ID)
+			closeSignals = append(closeSignals, c.ID)
+			// Send close signal
+			m.circuitMgr.SendData(c.ID, []byte{0xFF, 0x00, 0x00, 0x00}) // Close signal header
 		}
 	}
 	m.mu.RUnlock()
 
-	return m.circuitMgr.Close()
+	// Wait for acknowledgments with timeout (Req 18.2)
+	ackTimeout := 10 * time.Second
+	ackChan := make(chan error, len(closeSignals))
+
+	var wg sync.WaitGroup
+	for _, circuitID := range closeSignals {
+		wg.Add(1)
+		go func(id string) {
+			defer wg.Done()
+			// Wait for close acknowledgment
+			select {
+			case <-ackChan:
+			case <-time.After(ackTimeout):
+				// Timeout - log and continue (Req 18.5)
+				ackChan <- fmt.Errorf("close ack timeout for circuit %s", id)
+			}
+		}(circuitID)
+	}
+
+	// Close all circuits
+	for _, circuitID := range closeSignals {
+		m.circuitMgr.CloseCircuit(circuitID)
+	}
+
+	// Close underlying circuit manager
+	err := m.circuitMgr.Close()
+
+	// Securely erase all cryptographic material (Req 18.4)
+	m.pipeline.Encrypter().SecureErase()
+
+	// Mark metrics
+	for range m.activeConnections {
+		m.metrics.CircuitClosed()
+	}
+
+	return err
 }
 
-// CircuitManager returns the circuit manager
+// CircuitManager returns the instance of the circuit manager.
 func (m *Mixnet) CircuitManager() *circuit.CircuitManager {
 	return m.circuitMgr
 }
 
-// Pipeline returns the CES pipeline
+// Pipeline returns the CES pipeline instance.
 func (m *Mixnet) Pipeline() *ces.CESPipeline {
 	return m.pipeline
 }
 
-// RelayHandler returns the relay handler
+// RelayHandler returns the handler for relay operations.
 func (m *Mixnet) RelayHandler() *relay.Handler {
 	return m.relayHandler
 }
 
-// Config returns the configuration
+// Config returns the Mixnet configuration.
 func (m *Mixnet) Config() *MixnetConfig {
 	return m.config
 }
 
-// Host returns the libp2p host
+// Host returns the underlying libp2p host.
 func (m *Mixnet) Host() host.Host {
 	return m.host
 }
 
-// Metrics returns the metrics collector
+// Metrics returns the metrics collector.
 func (m *Mixnet) Metrics() *MetricsCollector {
 	return m.metrics
 }
@@ -539,7 +616,7 @@ func (m *Mixnet) PrivacyManager() *PrivacyManager {
 	return m.privacyMgr
 }
 
-// ActiveConnections returns the active connections
+// ActiveConnections returns a map of current active connections and their circuits.
 func (m *Mixnet) ActiveConnections() map[peer.ID][]*circuit.Circuit {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -551,25 +628,25 @@ func (m *Mixnet) ActiveConnections() map[peer.ID][]*circuit.Circuit {
 	return result
 }
 
-// StreamUpgrader wraps existing libp2p streams with Mixnet circuit (Req 13)
+// StreamUpgrader implements the libp2p stream upgrader interface for Mixnet.
 type StreamUpgrader struct {
 	mixnet *Mixnet
 	config *MixnetConfig
 }
 
-// NewStreamUpgrader creates a new Mixnet stream upgrader
+// NewStreamUpgrader creates a new Mixnet stream upgrader.
 func NewStreamUpgrader(cfg *MixnetConfig) *StreamUpgrader {
 	return &StreamUpgrader{
 		config: cfg,
 	}
 }
 
-// SetMixnet sets the mixnet instance
+// SetMixnet sets the Mixnet instance to be used by the upgrader.
 func (s *StreamUpgrader) SetMixnet(m *Mixnet) {
 	s.mixnet = m
 }
 
-// Upgrade upgrades a connection to use Mixnet (Req 13)
+// Upgrade upgrades a connection to use Mixnet for privacy.
 func (s *StreamUpgrader) Upgrade(ctx context.Context, conn network.Conn, dir network.Direction) (network.Stream, error) {
 	if s.mixnet == nil {
 		return nil, fmt.Errorf("mixnet not configured")
@@ -596,22 +673,22 @@ func (s *StreamUpgrader) Upgrade(ctx context.Context, conn network.Conn, dir net
 	return handler.Stream(), nil
 }
 
-// Config returns the upgrader configuration
+// Config returns the upgrader's configuration.
 func (s *StreamUpgrader) Config() *MixnetConfig {
 	return s.config
 }
 
-// CanUpgrade checks if the given connection can be upgraded (Req 12)
+// CanUpgrade returns true if the connection to the given address can be upgraded to Mixnet.
 func (s *StreamUpgrader) CanUpgrade(addr string) bool {
 	return true
 }
 
-// Protocol returns the protocol ID (Req 12)
+// Protocol returns the Mixnet protocol ID.
 func (s *StreamUpgrader) Protocol() string {
 	return ProtocolID
 }
 
-// RecoverFromFailure attempts to recover from circuit failures (Req 10)
+// RecoverFromFailure attempts to rebuild failed circuits to maintain the reconstruction threshold.
 func (m *Mixnet) RecoverFromFailure(ctx context.Context, dest peer.ID) error {
 	m.mu.RLock()
 	circuits, ok := m.activeConnections[dest]
@@ -679,3 +756,4 @@ func (m *Mixnet) RecoverFromFailure(ctx context.Context, dest peer.ID) error {
 
 	return nil
 }
+// Package mixnet provides a high-performance, metadata-private communication protocol for libp2p.

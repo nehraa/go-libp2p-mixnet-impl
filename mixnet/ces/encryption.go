@@ -13,18 +13,23 @@ import (
 // noiseSuite is the cipher suite used for all layered encryption.
 var noiseSuite = noise.NewCipherSuite(noise.DH25519, noise.CipherChaChaPoly, noise.HashSHA256)
 
-// LayeredEncrypter handles layered onion encryption using Noise Protocol primitives
+// LayeredEncrypter implements multi-layer onion encryption for mixnet traffic.
+// It handles layered onion encryption using Noise Protocol primitives.
 type LayeredEncrypter struct {
 	hopCount int
 }
 
-// EncryptionKey represents key material for one encryption layer
+// EncryptionKey holds the key material and destination information for a single encryption layer.
 type EncryptionKey struct {
-	Key          []byte
+	// Key is the raw symmetric key material.
+	Key []byte
+	// EphemeralPub is the ephemeral public key used for this layer.
 	EphemeralPub []byte
-	Destination  string
+	// Destination is the identifier of the peer that should decrypt this layer.
+	Destination string
 }
 
+// NewLayeredEncrypter creates a new LayeredEncrypter with the specified number of hops.
 func NewLayeredEncrypter(hopCount int) *LayeredEncrypter {
 	return &LayeredEncrypter{hopCount: hopCount}
 }
@@ -42,7 +47,9 @@ func deriveKey(inputKeyMaterial []byte) ([]byte, error) {
 	return mac2.Sum(nil)[:32], nil
 }
 
-// Encrypt encrypts data with Noise-framework-based layered (onion) encryption.
+// Encrypt wraps the data in multiple layers of encryption, one for each hop in the mixnet circuit.
+// Each layer contains the destination of the next hop and is encrypted with an ephemeral key.
+// Destinations should be ordered from entry relay to exit relay.
 func (e *LayeredEncrypter) Encrypt(plaintext []byte, destinations []string) ([]byte, []*EncryptionKey, error) {
 	if len(destinations) != e.hopCount {
 		return nil, nil, fmt.Errorf("expected %d destinations, got %d", e.hopCount, len(destinations))
@@ -96,7 +103,8 @@ func (e *LayeredEncrypter) Encrypt(plaintext []byte, destinations []string) ([]b
 	return currentData, keys, nil
 }
 
-// Decrypt decrypts layered encrypted data produced by Encrypt.
+// Decrypt removes one or more layers of onion encryption using the provided keys.
+// Keys should be provided in the order of the hops encountered (outermost to innermost).
 func (e *LayeredEncrypter) Decrypt(ciphertext []byte, keys []*EncryptionKey) ([]byte, error) {
 	if len(keys) != e.hopCount {
 		return nil, fmt.Errorf("expected %d keys, got %d", e.hopCount, len(keys))
@@ -135,6 +143,7 @@ func (e *LayeredEncrypter) Decrypt(ciphertext []byte, keys []*EncryptionKey) ([]
 	return currentData, nil
 }
 
+// SecureEraseBytes overwrites the content of a byte slice with zeroes to remove sensitive data from memory.
 func SecureEraseBytes(b []byte) {
 	for i := range b {
 		b[i] = 0
@@ -144,7 +153,7 @@ func SecureEraseBytes(b []byte) {
 // SecureErase implements the Eraser interface (Req 16.3).
 func (e *LayeredEncrypter) SecureErase() {}
 
-// EraseKeys zeroes out all key material in the provided keys slice (Req 16.3).
+// EraseKeys overwrites all key material in a slice of EncryptionKey instances.
 func EraseKeys(keys []*EncryptionKey) {
 	for _, k := range keys {
 		if k != nil {
@@ -154,10 +163,12 @@ func EraseKeys(keys []*EncryptionKey) {
 	}
 }
 
-// HopCount returns the number of encryption layers
-func (e *LayeredEncrypter) HopCount() int { return e.hopCount }
+// HopCount returns the number of encryption layers configured for this encrypter.
+func (e *LayeredEncrypter) HopCount() int {
+	return e.hopCount
+}
 
-// Eraser interface for secure key erasure
+// Eraser is an interface for types that can securely erase their sensitive contents.
 type Eraser interface {
 	SecureErase()
 }

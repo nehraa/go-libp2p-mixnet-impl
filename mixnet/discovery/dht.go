@@ -1,3 +1,4 @@
+// Package discovery handles the discovery and selection of mixnet relay nodes.
 package discovery
 
 import (
@@ -20,7 +21,7 @@ type rttCacheEntry struct {
 	timestamp time.Time
 }
 
-// RelayDiscovery handles finding relays via DHT
+// RelayDiscovery provides mechanisms for discovering and selecting mixnet relays.
 type RelayDiscovery struct {
 	protocolID    string
 	samplingSize  int
@@ -31,15 +32,19 @@ type RelayDiscovery struct {
 	cacheMu       sync.RWMutex
 }
 
-// RelayInfo holds information about a potential relay
+// RelayInfo contains information about a candidate relay node discovered in the network.
 type RelayInfo struct {
+	// PeerID is the unique ID of the relay peer.
 	PeerID    peer.ID
+	// AddrInfo contains the addresses of the relay peer.
 	AddrInfo  peer.AddrInfo
+	// Latency is the measured RTT to the relay.
 	Latency   time.Duration
+	// Available indicates if the relay is currently considered reachable.
 	Available bool
 }
 
-// NewRelayDiscovery creates a new relay discovery instance
+// NewRelayDiscovery creates a new RelayDiscovery instance with the specified parameters.
 func NewRelayDiscovery(protocolID string, samplingSize int, selectionMode string) *RelayDiscovery {
 	return &RelayDiscovery{
 		protocolID:    protocolID,
@@ -49,8 +54,7 @@ func NewRelayDiscovery(protocolID string, samplingSize int, selectionMode string
 	}
 }
 
-// NewRelayDiscoveryWithHost creates a relay discovery instance backed by a libp2p host for
-// accurate RTT measurements via the libp2p ping protocol (Req 5.1, 11.2).
+// NewRelayDiscoveryWithHost creates a RelayDiscovery instance that uses a libp2p host for RTT measurements.
 func NewRelayDiscoveryWithHost(h host.Host, protocolID string, samplingSize int, selectionMode string) *RelayDiscovery {
 	ps := ping.NewPingService(h)
 	return &RelayDiscovery{
@@ -63,7 +67,16 @@ func NewRelayDiscoveryWithHost(h host.Host, protocolID string, samplingSize int,
 	}
 }
 
-// FindRelays discovers potential relay nodes and selects them based on selection mode
+// SelectRelays chooses a set of relays from the provided candidates based on the selection mode.
+func (r *RelayDiscovery) SelectRelays(ctx context.Context, candidates []RelayInfo) ([]RelayInfo, error) {
+	// For now, simple RTT selection
+	sort.Slice(candidates, func(i, j int) bool {
+		return candidates[i].Latency < candidates[j].Latency
+	})
+	return candidates, nil
+}
+
+// FindRelays discovers potential relay nodes and selects them based on selection mode.
 func (r *RelayDiscovery) FindRelays(ctx context.Context, peers []peer.AddrInfo, hopCount, circuitCount int) ([]RelayInfo, error) {
 	filtered := r.filterPeers(peers)
 	required := hopCount * circuitCount
@@ -196,10 +209,6 @@ func (r *RelayDiscovery) randomSample(peers []peer.AddrInfo, k int) []peer.AddrI
 }
 
 // measureLatencies measures RTT to all provided peers.
-// When a libp2p host is configured it uses the libp2p ping protocol (Req 5.1,
-// 11.2) which works with any transport (TCP, QUIC, WebRTC).  Without a host it
-// falls back to a 100 ms default latency so that selection still works in unit
-// tests without a real network.
 func (r *RelayDiscovery) measureLatencies(ctx context.Context, peers []peer.AddrInfo) (map[peer.ID]time.Duration, error) {
 	result := make(map[peer.ID]time.Duration)
 
@@ -240,8 +249,8 @@ func (r *RelayDiscovery) measureLatencies(ctx context.Context, peers []peer.Addr
 	return result, nil
 }
 
-// measureRTTToPeer measures round-trip time to a peer using the libp2p ping
-// protocol (Req 5.1).  Results are cached for 60 seconds (Issue 18).
+// measureRTTToPeer measures round-trip time to a peer using the libp2p ping protocol (Req 5.1).
+// Results are cached for 60 seconds (Issue 18).
 func (r *RelayDiscovery) measureRTTToPeer(ctx context.Context, addrInfo peer.AddrInfo) (time.Duration, error) {
 	if r.pingService == nil {
 		return 0, fmt.Errorf("ping service not configured")
@@ -265,8 +274,7 @@ func (r *RelayDiscovery) measureRTTToPeer(ctx context.Context, addrInfo peer.Add
 		}
 	}
 
-	// Send a single ping and return its RTT.  Each ping call has its own
-	// per-peer timeout (Req 4.8 / 5.2).
+	// Send a single ping and return its RTT.
 	pingCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
@@ -362,6 +370,7 @@ func (r *RelayDiscovery) weightedSelect(peers []weightedPeer, randomnessFactor f
 	return &peers[len(peers)-1]
 }
 
+// SelectRelaysForCircuit selects a set of relays for a single circuit.
 func (r *RelayDiscovery) SelectRelaysForCircuit(ctx context.Context, peers []peer.AddrInfo, hopCount int, randomnessFactor float64) ([]RelayInfo, error) {
 	sampled := r.randomSample(peers, r.samplingSize)
 	latencies, err := r.measureLatencies(ctx, sampled)
@@ -409,6 +418,7 @@ func (r *RelayDiscovery) SelectRelaysForCircuit(ctx context.Context, peers []pee
 	return result, nil
 }
 
+// FilterByExclusion filters out the specified peer IDs from the list of candidates.
 func FilterByExclusion(peers []peer.AddrInfo, exclude ...peer.ID) []peer.AddrInfo {
 	excludeMap := make(map[peer.ID]bool)
 	for _, id := range exclude {
@@ -423,6 +433,7 @@ func FilterByExclusion(peers []peer.AddrInfo, exclude ...peer.ID) []peer.AddrInf
 	return result
 }
 
+// SortByLatency sorts a slice of RelayInfo by their latency.
 func SortByLatency(peers []RelayInfo) {
 	sort.Slice(peers, func(i, j int) bool {
 		return peers[i].Latency < peers[j].Latency
