@@ -73,7 +73,7 @@ func (h *Handler) HandleStream(ctx context.Context, stream network.Stream) error
 	h.mu.Lock()
 	if h.maxCircuits > 0 && len(h.activeRelays) >= h.maxCircuits {
 		h.mu.Unlock()
-		return
+		return nil
 	}
 	circuitID := fmt.Sprintf("relay-%d", len(h.activeRelays))
 	h.activeRelays[circuitID] = &RelayInfo{
