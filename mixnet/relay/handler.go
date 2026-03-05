@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/libp2p/go-libp2p/core/host"
@@ -70,6 +71,7 @@ type Handler struct {
 	waitBandwidth     func(context.Context, int64) error
 	recordBandwidth   func(string, int64)
 	reportUtilization func(int)
+	circuitCounter    atomic.Uint64
 }
 
 // NewHandler creates a new relay Handler with the specified limits.
@@ -100,7 +102,7 @@ func (h *Handler) HandleStream(stream network.Stream) {
 		h.mu.Unlock()
 		return
 	}
-	circuitID := fmt.Sprintf("relay-%d", len(h.activeRelays))
+	circuitID := fmt.Sprintf("relay-%d", h.circuitCounter.Add(1))
 	h.activeRelays[circuitID] = &RelayInfo{
 		PeerID:       stream.Conn().RemotePeer(),
 		Stream:       stream,
@@ -122,7 +124,9 @@ func (h *Handler) HandleStream(stream network.Stream) {
 	}()
 
 	// Set a read deadline so the relay cannot be held open indefinitely (Req 6.3).
-	stream.SetDeadline(time.Now().Add(ReadTimeout))
+	// The error is intentionally ignored: a best-effort deadline is still valuable
+	// even if some stream implementations do not support it.
+	_ = stream.SetDeadline(time.Now().Add(ReadTimeout))
 
 	reader := bufio.NewReader(stream)
 	var dst network.Stream
@@ -239,6 +243,9 @@ func (h *Handler) HandleStream(stream network.Stream) {
 		if err != nil {
 			return
 		}
+		// Refresh the deadline after each successfully processed frame so
+		// long-lived active streams are not terminated prematurely (Req 6.3).
+		_ = stream.SetDeadline(time.Now().Add(ReadTimeout))
 	}
 }
 
@@ -277,10 +284,20 @@ func (h *Handler) openStream(ctx context.Context, nextPeer peer.ID, protoID stri
 		managedScope = scope
 	}
 
-	if managedScope != nil {
-		defer managedScope.Done()
+	s, err := host.NewStream(ctx, nextPeer, protocol.ID(protoID))
+	if err != nil {
+		if managedScope != nil {
+			managedScope.Done()
+		}
+		return nil, err
 	}
-	return host.NewStream(ctx, nextPeer, protocol.ID(protoID))
+	if managedScope == nil {
+		return s, nil
+	}
+	// Wrap the stream so the rcmgr scope is released when the stream is closed,
+	// not when the factory function returns. This ensures resource tracking stays
+	// accurate for the full stream lifetime.
+	return &scopedStream{Stream: s, scope: managedScope}, nil
 }
 
 func (h *Handler) forwardByAddressEncrypted(ctx context.Context, addr string, circuitID string, payload []byte, protoID string) error {
@@ -571,4 +588,24 @@ func (h *Handler) SetUtilizationReporter(fn func(activeCircuits int)) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.reportUtilization = fn
+}
+
+// scopedStream wraps a network.Stream and releases the associated rcmgr scope
+// when the stream is closed, tying resource tracking to the stream's full lifetime.
+type scopedStream struct {
+	network.Stream
+	scope    network.StreamManagementScope
+	closeOnce sync.Once
+}
+
+func (s *scopedStream) Close() error {
+	err := s.Stream.Close()
+	s.closeOnce.Do(func() { s.scope.Done() })
+	return err
+}
+
+func (s *scopedStream) Reset() error {
+	err := s.Stream.Reset()
+	s.closeOnce.Do(func() { s.scope.Done() })
+	return err
 }

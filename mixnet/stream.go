@@ -19,6 +19,8 @@ type MixStream struct {
 	mu        sync.Mutex
 	closed    bool
 	readBuf   []byte
+	ctx       context.Context
+	cancel    context.CancelFunc
 }
 
 // OpenStream creates a Mixnet stream to the destination.
@@ -28,11 +30,14 @@ func (m *Mixnet) OpenStream(ctx context.Context, dest peer.ID) (*MixStream, erro
 	}
 	sessionID := fmt.Sprintf("%s-%d", dest.String(), time.Now().UnixNano())
 	ch := m.destHandler.registerSession(sessionID)
+	sCtx, cancel := context.WithCancel(ctx)
 	return &MixStream{
 		mixnet:    m,
 		dest:      dest,
 		sessionID: sessionID,
 		ch:        ch,
+		ctx:       sCtx,
+		cancel:    cancel,
 	}, nil
 }
 
@@ -75,9 +80,10 @@ func (s *MixStream) Write(p []byte) (int, error) {
 		s.mu.Unlock()
 		return 0, fmt.Errorf("cannot write to inbound-only stream")
 	}
+	ctx := s.ctx
 	s.mu.Unlock()
 
-	if err := s.mixnet.SendWithSession(context.Background(), s.dest, p, s.sessionID); err != nil {
+	if err := s.mixnet.SendWithSession(ctx, s.dest, p, s.sessionID); err != nil {
 		return 0, err
 	}
 	return len(p), nil
@@ -90,8 +96,12 @@ func (s *MixStream) Close() error {
 		return nil
 	}
 	s.closed = true
+	cancel := s.cancel
 	s.mu.Unlock()
 
+	if cancel != nil {
+		cancel()
+	}
 	s.mixnet.destHandler.unregisterSession(s.sessionID)
 	return nil
 }
@@ -106,11 +116,14 @@ func (m *Mixnet) AcceptStream(ctx context.Context) (*MixStream, error) {
 		return nil, ctx.Err()
 	case sessionID := <-m.destHandler.inboundCh:
 		ch := m.destHandler.registerSession(sessionID)
+		sCtx, cancel := context.WithCancel(ctx)
 		return &MixStream{
 			mixnet:    m,
 			dest:      "",
 			sessionID: sessionID,
 			ch:        ch,
+			ctx:       sCtx,
+			cancel:    cancel,
 		}, nil
 	}
 }

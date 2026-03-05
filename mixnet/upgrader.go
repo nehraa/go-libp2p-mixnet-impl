@@ -186,7 +186,11 @@ func NewMixnet(cfg *MixnetConfig, h host.Host, r routing.Routing) (*Mixnet, erro
 
 	// Register protocol handler (Req 9)
 	h.SetStreamHandler(ProtocolID, m.handleIncomingStream)
-	h.SetStreamHandler(KeyExchangeProtocolID, relayHandler.HandleKeyExchange)
+	// Note: KeyExchangeProtocolID is only registered on relay nodes (via relayHandler).
+	// The origin node is the initiator of Noise XX key exchanges, not the responder.
+	// Register the session key exchange handler so this node can receive per-session
+	// keys directly from other origin nodes (without relays seeing the key material).
+	h.SetStreamHandler(SessionKeyProtocolID, m.handleSessionKeyExchange)
 
 	// Start active failure detection (Req 10.1-10.4).
 	m.failureNotifier = NewCircuitFailureNotifier(m, h)
@@ -442,7 +446,7 @@ func (m *Mixnet) SendWithSession(ctx context.Context, dest peer.ID, data []byte,
 	}
 
 	// Record compression ratio
-	m.metrics.RecordCompressionRatio(originalSize, len(data))
+	m.metrics.RecordCompressionRatio(originalSize, len(compressed))
 
 	sessionIDBytes := []byte(sessionID)
 
@@ -451,12 +455,18 @@ func (m *Mixnet) SendWithSession(ctx context.Context, dest peer.ID, data []byte,
 		return ErrEncryptionFailed("failed to establish hop keys").WithCause(err)
 	}
 
+	// Exchange session key directly with the destination (not through relays) so
+	// no relay node can observe the session key material (Req 3.3 privacy).
+	if err := m.sendSessionKey(ctx, dest, sessionID, keyData); err != nil {
+		return ErrEncryptionFailed("failed to exchange session key with destination").WithCause(err)
+	}
+
 	// Enforce 1:1 shard-to-circuit mapping (Req 2.4, 8.1).
 	if len(shards) != len(circuits) {
 		return ErrShardingFailed(fmt.Sprintf("shard count mismatch: have %d shards, %d circuits", len(shards), len(circuits)))
 	}
 	m.setPendingTransmission(dest, sessionID, keyData, shards)
-	if err := m.sendShardsAcrossCircuits(ctx, dest, sessionIDBytes, keyData, shards, circuits); err != nil {
+	if err := m.sendShardsAcrossCircuits(ctx, dest, sessionIDBytes, shards, circuits); err != nil {
 		return err
 	}
 	m.clearPendingTransmission(dest, sessionID)
@@ -567,7 +577,13 @@ func (h *DestinationHandler) AddShard(sessionID string, shard *ces.Shard, keyDat
 				delete(h.timers, sessionID)
 			}
 			delete(h.keys, sessionID)
-			delete(h.sessions, sessionID)
+			// Close the session channel to unblock any readers waiting on it.
+			// The map lookup guards against double-close; unregisterSession and
+			// TryReconstruct both delete from the map under the same mutex.
+			if s, ok := h.sessions[sessionID]; ok {
+				close(s)
+				delete(h.sessions, sessionID)
+			}
 		})
 	}
 	if len(keyData) > 0 {
@@ -751,6 +767,7 @@ func (m *Mixnet) Close() error {
 
 	// Close all circuits and collect errors
 	var closeErrors []error
+	var closeErrMu sync.Mutex
 	var wg sync.WaitGroup
 
 	for _, circuitID := range closeSignals {
@@ -758,11 +775,15 @@ func (m *Mixnet) Close() error {
 		go func(id string) {
 			defer wg.Done()
 			if err := m.sendCloseAndWait(ctx, id); err != nil {
+				closeErrMu.Lock()
 				closeErrors = append(closeErrors, ErrProtocolError(fmt.Sprintf("close ack failed for circuit %s", id)).WithCause(err))
+				closeErrMu.Unlock()
 			}
 			// Close the circuit and wait for completion
 			if err := m.circuitMgr.CloseCircuitWithContext(ctx, id); err != nil {
+				closeErrMu.Lock()
 				closeErrors = append(closeErrors, ErrCircuitFailed(fmt.Sprintf("failed to close circuit %s", id)).WithCause(err))
+				closeErrMu.Unlock()
 			}
 		}(circuitID)
 	}
@@ -781,6 +802,9 @@ func (m *Mixnet) Close() error {
 	// Securely erase all cryptographic material (Req 18.4)
 	m.pipeline.Encrypter().SecureErase()
 	m.clearCircuitKeys()
+
+	// Reset config immutability so the instance can be reconfigured and reused.
+	m.config.Unlock()
 
 	// Mark metrics
 	for range m.activeConnections {
@@ -998,6 +1022,9 @@ func (m *Mixnet) RecoverFromFailure(ctx context.Context, dest peer.ID) error {
 	}
 
 	threshold := m.config.GetErasureThreshold()
+	if activeCount >= threshold {
+		return nil
+	}
 	m.metrics.RecordRecovery()
 
 	// Discover fresh relays so we don't rebuild with stale/failed ones (Req 10.3).
@@ -1162,14 +1189,20 @@ func (m *Mixnet) reschedulePendingShards(ctx context.Context, dest peer.ID) erro
 	if len(pt.Shards) != len(circuits) {
 		return ErrShardingFailed(fmt.Sprintf("cannot reschedule shards: shards=%d active_circuits=%d", len(pt.Shards), len(circuits)))
 	}
-	if err := m.sendShardsAcrossCircuits(ctx, dest, []byte(pt.SessionID), pt.KeyData, pt.Shards, circuits); err != nil {
+	// Re-send the session key to the destination in case it was lost during the circuit failure.
+	if len(pt.KeyData) > 0 {
+		if err := m.sendSessionKey(ctx, dest, pt.SessionID, pt.KeyData); err != nil {
+			return ErrEncryptionFailed("failed to re-exchange session key on reschedule").WithCause(err)
+		}
+	}
+	if err := m.sendShardsAcrossCircuits(ctx, dest, []byte(pt.SessionID), pt.Shards, circuits); err != nil {
 		return err
 	}
 	m.clearPendingTransmission(dest, pt.SessionID)
 	return nil
 }
 
-func (m *Mixnet) sendShardsAcrossCircuits(ctx context.Context, dest peer.ID, sessionIDBytes []byte, keyData []byte, shards []*ces.Shard, circuits []*circuit.Circuit) error {
+func (m *Mixnet) sendShardsAcrossCircuits(ctx context.Context, dest peer.ID, sessionIDBytes []byte, shards []*ces.Shard, circuits []*circuit.Circuit) error {
 	_ = ctx
 	sendCount := len(shards)
 	var wg sync.WaitGroup
@@ -1178,26 +1211,25 @@ func (m *Mixnet) sendShardsAcrossCircuits(ctx context.Context, dest peer.ID, ses
 	for i := 0; i < sendCount; i++ {
 		circuitID := circuits[i].ID
 		shard := shards[i]
+		c := circuits[i] // capture circuit pointer before goroutine to avoid stale reads
 
 		wg.Add(1)
-		go func(shardData []byte, circuitID string, idx int) {
+		go func(shardData []byte, circuitID string, idx int, shardIdx int, c *circuit.Circuit) {
 			defer wg.Done()
 
-			shardIndex := shard.Index
+			shardIndex := shardIdx
 			if shardIndex < 0 {
 				shardIndex = idx
 			}
-			includeKeys := len(keyData) > 0 && shardIndex == 0
-			var keyPayload []byte
-			if includeKeys {
-				keyPayload = keyData
-			}
+			// Do not embed session key material in the privacy shard header to
+			// avoid exposing it in plaintext to intermediate relays. The session
+			// key is exchanged directly with the destination via SessionKeyProtocolID.
 			privacyShard, err := EncodePrivacyShard(shardData, PrivacyShardHeader{
 				SessionID:   sessionIDBytes,
 				ShardIndex:  uint32(shardIndex),
 				TotalShards: uint32(sendCount),
-				HasKeys:     includeKeys,
-				KeyData:     keyPayload,
+				HasKeys:     false,
+				KeyData:     nil,
 			})
 			if err != nil {
 				errCh <- ErrProtocolError("failed to encode privacy shard").WithCause(err)
@@ -1205,13 +1237,13 @@ func (m *Mixnet) sendShardsAcrossCircuits(ctx context.Context, dest peer.ID, ses
 			}
 			shardPayload := append([]byte{msgTypeData}, privacyShard...)
 
-			keyID := m.circuitKeyID(circuits[idx])
+			keyID := m.circuitKeyID(c)
 			hopKeys, ok := m.getCircuitKeys(keyID)
 			if !ok {
 				errCh <- ErrEncryptionFailed(fmt.Sprintf("missing hop keys for circuit %s", circuitID))
 				return
 			}
-			encryptedPayload, err := encryptOnion(shardPayload, circuits[idx], dest, hopKeys)
+			encryptedPayload, err := encryptOnion(shardPayload, c, dest, hopKeys)
 			if err != nil {
 				errCh <- ErrEncryptionFailed(fmt.Sprintf("failed to encrypt shard for circuit %s", circuitID)).WithCause(err)
 				return
@@ -1232,7 +1264,7 @@ func (m *Mixnet) sendShardsAcrossCircuits(ctx context.Context, dest peer.ID, ses
 				return
 			}
 			m.metrics.RecordThroughput(uint64(len(fullData)))
-		}(shard.Data, circuitID, i)
+		}(shard.Data, circuitID, i, shard.Index, c)
 	}
 
 	wg.Wait()

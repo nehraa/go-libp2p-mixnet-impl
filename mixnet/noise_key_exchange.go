@@ -6,18 +6,19 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
-	"time"
 
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
 
-	"github.com/flynn/noise"
+	"github.com/libp2p/go-libp2p/mixnet/noiseframe"
 )
 
 // KeyExchangeProtocolID is the protocol used to negotiate per-circuit hop keys.
 const KeyExchangeProtocolID = "/lib-mix/key/1.0.0"
 
-var keyExchangeCipherSuite = noise.NewCipherSuite(noise.DH25519, noise.CipherChaChaPoly, noise.HashSHA256)
+// SessionKeyProtocolID is the protocol used to exchange per-session encryption keys
+// directly with the destination (out-of-band from the relay chain).
+const SessionKeyProtocolID = "/lib-mix/session-key/1.0.0"
 
 func (m *Mixnet) exchangeHopKey(ctx context.Context, relay peer.ID, circuitID string) ([]byte, error) {
 	stream, err := m.host.NewStream(ctx, relay, KeyExchangeProtocolID)
@@ -36,64 +37,49 @@ func (m *Mixnet) exchangeHopKey(ctx context.Context, relay peer.ID, circuitID st
 		return nil, err
 	}
 
-	if err := runNoiseXXInitiator(ctx, stream, payload); err != nil {
+	if err := noiseframe.RunXXInitiator(ctx, stream, payload); err != nil {
 		return nil, err
 	}
 
 	return key, nil
 }
 
-func runNoiseXXInitiator(ctx context.Context, stream network.Stream, payload []byte) error {
-	kp, err := noise.DH25519.GenerateKeypair(rand.Reader)
-	if err != nil {
-		return fmt.Errorf("keypair: %w", err)
-	}
-
-	hs, err := noise.NewHandshakeState(noise.Config{
-		CipherSuite:   keyExchangeCipherSuite,
-		Pattern:       noise.HandshakeXX,
-		Initiator:     true,
-		StaticKeypair: kp,
-	})
-	if err != nil {
-		return fmt.Errorf("handshake init: %w", err)
-	}
-
-	if deadline, ok := ctx.Deadline(); ok {
-		_ = stream.SetDeadline(deadline)
-	} else {
-		_ = stream.SetDeadline(time.Now().Add(10 * time.Second))
-	}
-
-	msg, _, _, err := hs.WriteMessage(nil, nil)
-	if err != nil {
-		return fmt.Errorf("handshake write: %w", err)
-	}
-	if err := writeFrame(stream, msg); err != nil {
-		return err
-	}
-
-	resp, err := readFrame(stream)
+// sendSessionKey exchanges the per-session encryption key directly with the destination
+// over a direct (non-relay) Noise XX connection. This prevents any relay node from
+// observing the session key material.
+func (m *Mixnet) sendSessionKey(ctx context.Context, dest peer.ID, sessionID string, keyData []byte) error {
+	stream, err := m.host.NewStream(ctx, dest, SessionKeyProtocolID)
 	if err != nil {
 		return err
 	}
-	if _, _, _, err := hs.ReadMessage(nil, resp); err != nil {
-		return fmt.Errorf("handshake read: %w", err)
-	}
+	defer stream.Close()
 
-	msg, cs1, _, err := hs.WriteMessage(nil, payload)
+	payload, err := encodeSessionKeyPayload(sessionID, keyData)
 	if err != nil {
-		return fmt.Errorf("handshake write final: %w", err)
-	}
-	if err := writeFrame(stream, msg); err != nil {
 		return err
 	}
+	return noiseframe.RunXXInitiator(ctx, stream, payload)
+}
 
-	if cs1 == nil {
-		return fmt.Errorf("missing cipher state after handshake")
+// handleSessionKeyExchange receives a per-session key from the origin directly.
+func (m *Mixnet) handleSessionKeyExchange(stream network.Stream) {
+	defer stream.Close()
+	payload, err := noiseframe.RunXXResponder(context.Background(), stream)
+	if err != nil {
+		return
 	}
-
-	return nil
+	sessionID, keyData, err := decodeSessionKeyPayload(payload)
+	if err != nil {
+		return
+	}
+	if m.destHandler == nil {
+		return
+	}
+	m.destHandler.mu.Lock()
+	if key, err := decodeSessionKeyData(keyData); err == nil {
+		m.destHandler.keys[sessionID] = key
+	}
+	m.destHandler.mu.Unlock()
 }
 
 func encodeKeyExchangePayload(circuitID string, key []byte) ([]byte, error) {
@@ -113,31 +99,41 @@ func encodeKeyExchangePayload(circuitID string, key []byte) ([]byte, error) {
 	return out, nil
 }
 
-func writeFrame(w io.Writer, msg []byte) error {
-	if len(msg) > 65535 {
-		return fmt.Errorf("frame too large")
+func encodeSessionKeyPayload(sessionID string, keyData []byte) ([]byte, error) {
+	if len(sessionID) > 65535 {
+		return nil, fmt.Errorf("session ID too long")
 	}
-	lenBuf := make([]byte, 2)
-	binary.BigEndian.PutUint16(lenBuf, uint16(len(msg)))
-	if _, err := w.Write(lenBuf); err != nil {
-		return err
-	}
-	_, err := w.Write(msg)
-	return err
+	out := make([]byte, 0, 2+len(sessionID)+2+len(keyData))
+	idLen := make([]byte, 2)
+	binary.LittleEndian.PutUint16(idLen, uint16(len(sessionID)))
+	out = append(out, idLen...)
+	out = append(out, []byte(sessionID)...)
+	kLen := make([]byte, 2)
+	binary.LittleEndian.PutUint16(kLen, uint16(len(keyData)))
+	out = append(out, kLen...)
+	out = append(out, keyData...)
+	return out, nil
 }
 
-func readFrame(r io.Reader) ([]byte, error) {
-	lenBuf := make([]byte, 2)
-	if _, err := io.ReadFull(r, lenBuf); err != nil {
-		return nil, err
+func decodeSessionKeyPayload(data []byte) (string, []byte, error) {
+	if len(data) < 4 {
+		return "", nil, fmt.Errorf("payload too short")
 	}
-	n := int(binary.BigEndian.Uint16(lenBuf))
-	if n <= 0 {
-		return nil, fmt.Errorf("invalid frame length")
+	pos := 0
+	idLen := int(binary.LittleEndian.Uint16(data[pos : pos+2]))
+	pos += 2
+	if len(data) < pos+idLen+2 {
+		return "", nil, fmt.Errorf("payload truncated (session id)")
 	}
-	buf := make([]byte, n)
-	if _, err := io.ReadFull(r, buf); err != nil {
-		return nil, err
+	sessionID := string(data[pos : pos+idLen])
+	pos += idLen
+	kLen := int(binary.LittleEndian.Uint16(data[pos : pos+2]))
+	pos += 2
+	if len(data) < pos+kLen {
+		return "", nil, fmt.Errorf("payload truncated (key)")
 	}
-	return buf, nil
+	key := make([]byte, kLen)
+	copy(key, data[pos:pos+kLen])
+	return sessionID, key, nil
 }
+

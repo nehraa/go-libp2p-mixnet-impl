@@ -275,6 +275,15 @@ func (c *MixnetConfig) Lock() {
 	c.locked = true
 }
 
+// Unlock clears the immutability flag, allowing configuration to be mutated again.
+// This should be called when circuits are torn down (e.g., in Close()) to allow
+// reconfiguration before the next EstablishConnection call.
+func (c *MixnetConfig) Unlock() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.locked = false
+}
+
 // IsLocked returns true if the config is immutable.
 func (c *MixnetConfig) IsLocked() bool {
 	c.mu.RLock()
