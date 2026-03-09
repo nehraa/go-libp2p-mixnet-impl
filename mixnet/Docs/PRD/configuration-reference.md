@@ -176,8 +176,8 @@ instead of being forced into a single privacy/performance profile.
 - **Type**: `bool`
 - **Default**: `true`
 - **Description**: Enable random padding in privacy headers
-- **When to Enable**: High-privacy deployments
-- **Privacy Impact**: Prevents relay fingerprinting by header size
+- **When to Disable**: Only in bandwidth-constrained or low-privacy deployments
+- **Privacy Impact**: When enabled, prevents relay fingerprinting by header size
 - **Bandwidth Impact**: +0-256 bytes per shard
 - **Requirement**: Req 22
 
