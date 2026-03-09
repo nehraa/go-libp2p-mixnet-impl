@@ -253,7 +253,7 @@ instead of being forced into a single privacy/performance profile.
 - **Type**: `int` (milliseconds)
 - **Default**: 50
 - **Description**: Maximum random delay between shard transmissions
-- **When to Enable**: High-privacy deployments
+- **Usage Guidance**: Enabled by default; increase for high-privacy deployments, decrease or disable (set to 0) for latency-sensitive workloads
 - **Privacy Impact**: Breaks timing correlations between shards
 - **Latency Impact**: Adds 0-`MaxJitter` ms per shard
 - **Recommendation**: 
