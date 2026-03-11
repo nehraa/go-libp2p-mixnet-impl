@@ -13,6 +13,8 @@ import (
 	mrand "math/rand"
 	"os"
 	"path/filepath"
+	"runtime"
+	"runtime/debug"
 	"sort"
 	"strconv"
 	"strings"
@@ -297,6 +299,7 @@ func runSuite(opts suiteOptions) error {
 					return err
 				}
 				runRecords = append(runRecords, rec)
+				releaseBenchmarkMemory()
 			}
 		}
 	}
@@ -325,6 +328,12 @@ func runSuite(opts suiteOptions) error {
 
 	fmt.Printf("mixnet-bench: complete. report=%s\n", filepath.Join(opts.OutputDir, "report.html"))
 	return nil
+}
+
+func releaseBenchmarkMemory() {
+	runtime.GC()
+	debug.FreeOSMemory()
+	time.Sleep(100 * time.Millisecond)
 }
 
 func buildScenarios(opts suiteOptions) []scenario {
