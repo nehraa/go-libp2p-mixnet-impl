@@ -58,9 +58,24 @@ type Mixnet struct {
 	pendingShards     map[peer.ID]*PendingTransmission
 	streamSessions    map[string]sessionKey
 	sessionRoutes     map[string]*senderSessionRouteState
+	observeDelivery   func(FinalDeliveryObservation)
 
 	mu     sync.RWMutex
 	closed atomic.Bool
+}
+
+// FinalDeliveryObservation captures what the destination-side mixnet handler
+// actually received on its final inbound libp2p stream.
+type FinalDeliveryObservation struct {
+	Timestamp       time.Time
+	NodePeer        string
+	InboundPeer     string
+	MessageType     string
+	BaseSessionID   string
+	SessionID       string
+	PayloadLength   int
+	WirePreviewHex  string
+	WirePreviewText string
 }
 
 // PendingTransmission tracks shards that need re-scheduling after circuit recovery.
@@ -1133,17 +1148,32 @@ func (m *Mixnet) handleIncomingStream(stream network.Stream) {
 	if len(shardData) < 1 {
 		return
 	}
+	baseObs := FinalDeliveryObservation{
+		Timestamp:       time.Now(),
+		NodePeer:        m.host.ID().String(),
+		InboundPeer:     stream.Conn().RemotePeer().String(),
+		PayloadLength:   len(shardData),
+		WirePreviewHex:  previewHexBytes(shardData),
+		WirePreviewText: previewTextBytes(shardData),
+	}
 	switch shardData[0] {
 	case msgTypeCloseReq:
+		baseObs.MessageType = "close-request"
+		m.recordFinalDeliveryObservation(baseObs)
 		_, _ = stream.Write([]byte{msgTypeCloseAck})
 		return
 	case msgTypeData:
+		baseObs.MessageType = "data"
+		m.recordFinalDeliveryObservation(baseObs)
 		// continue
 	case msgTypeSessionSetup:
 		baseID, keyData, err := decodeSessionSetupDeliveryPayload(shardData[1:])
 		if err != nil {
 			return
 		}
+		baseObs.MessageType = "session-setup"
+		baseObs.BaseSessionID = baseID
+		m.recordFinalDeliveryObservation(baseObs)
 		m.destHandler.ensureSession(baseID)
 		if err := m.destHandler.StoreSessionSetup(baseID, keyData); err != nil {
 			return
@@ -1155,6 +1185,10 @@ func (m *Mixnet) handleIncomingStream(stream network.Stream) {
 			return
 		}
 		sessionID := routedSessionID(baseID, hasSeq, seq)
+		baseObs.MessageType = "session-data"
+		baseObs.BaseSessionID = baseID
+		baseObs.SessionID = sessionID
+		m.recordFinalDeliveryObservation(baseObs)
 		m.destHandler.ensureSession(sessionID)
 		if err := m.destHandler.AddShard(sessionID, shard, nil, authTag, totalShards); err != nil {
 			return
@@ -1172,6 +1206,9 @@ func (m *Mixnet) handleIncomingStream(stream network.Stream) {
 	case msgTypeSessionClose:
 		baseID, err := decodeSessionCloseFramePayload(shardData[1:])
 		if err == nil {
+			baseObs.MessageType = "session-close"
+			baseObs.BaseSessionID = baseID
+			m.recordFinalDeliveryObservation(baseObs)
 			m.destHandler.ClearSessionSetup(baseID)
 			m.destHandler.unregisterSession(baseID)
 		}
@@ -2069,6 +2106,14 @@ func (m *Mixnet) CircuitManager() *circuit.CircuitManager {
 	return m.circuitMgr
 }
 
+// SetDeliveryObservationHandler registers an optional callback that receives
+// final-hop delivery observations for diagnostics and benchmark proof capture.
+func (m *Mixnet) SetDeliveryObservationHandler(fn func(FinalDeliveryObservation)) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.observeDelivery = fn
+}
+
 // Pipeline returns the CES pipeline instance.
 func (m *Mixnet) Pipeline() *ces.CESPipeline {
 	return m.pipeline
@@ -2104,6 +2149,53 @@ func (m *Mixnet) ActiveConnections() map[peer.ID][]*circuit.Circuit {
 		result[k] = v
 	}
 	return result
+}
+
+func (m *Mixnet) recordFinalDeliveryObservation(obs FinalDeliveryObservation) {
+	m.mu.RLock()
+	fn := m.observeDelivery
+	m.mu.RUnlock()
+	if fn == nil {
+		return
+	}
+	fn(obs)
+}
+
+func previewHexBytes(data []byte) string {
+	const previewLimit = 24
+	if len(data) == 0 {
+		return ""
+	}
+	if len(data) > previewLimit {
+		data = data[:previewLimit]
+	}
+	out := make([]byte, 0, len(data)*3)
+	for i, b := range data {
+		if i > 0 {
+			out = append(out, ' ')
+		}
+		out = append(out, "0123456789abcdef"[b>>4], "0123456789abcdef"[b&0x0f])
+	}
+	return string(out)
+}
+
+func previewTextBytes(data []byte) string {
+	const previewLimit = 24
+	if len(data) == 0 {
+		return ""
+	}
+	if len(data) > previewLimit {
+		data = data[:previewLimit]
+	}
+	out := make([]byte, len(data))
+	for i, b := range data {
+		if b >= 32 && b <= 126 {
+			out[i] = b
+			continue
+		}
+		out[i] = '.'
+	}
+	return string(out)
 }
 
 // RecoverFromFailure attempts to rebuild failed circuits to maintain the reconstruction threshold.

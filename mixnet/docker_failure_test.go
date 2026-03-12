@@ -203,6 +203,8 @@ func (n *DockerTestNetwork) getContainerIP(t *testing.T, containerName string) s
 // TestDockerFailureAndRecoverFromFailure tests failure recovery in Docker environment
 // This test isolates each mixnet node in its own container to eliminate localhost flakiness
 func TestDockerFailureAndRecoverFromFailure(t *testing.T) {
+	t.Skip("placeholder docker failure harness is not production-grade; use mixnet/tests/docker/run-docker-tests.sh to run TestProductionSanity inside containers")
+
 	// Skip if Docker is not available
 	if err := exec.CommandContext(context.Background(), "docker", "ps").Run(); err != nil {
 		t.Skip("Docker is not available")

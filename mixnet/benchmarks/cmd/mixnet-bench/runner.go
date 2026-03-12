@@ -86,6 +86,7 @@ type suiteOptions struct {
 	Circuits    []int
 	Groups      map[string]bool
 	Runs        int
+	VisualProof bool
 	// SizeRunOverrides allows a per-size run count override (bytes -> runs).
 	SizeRunOverrides map[int]int
 	Timeout          time.Duration
@@ -262,6 +263,14 @@ type staticRouting struct {
 	peers     map[peer.ID]peer.AddrInfo
 }
 
+type benchmarkNetwork struct {
+	origin    *mixnet.Mixnet
+	dest      *mixnet.Mixnet
+	relays    []*mixnet.Mixnet
+	cleanup   func()
+	relayHost []host.Host
+}
+
 func profileOptions(name string) (suiteOptions, error) {
 	switch name {
 	case "smoke":
@@ -404,7 +413,18 @@ func runSuite(opts suiteOptions) error {
 	if err := writeBestRecords(opts.OutputDir, best); err != nil {
 		return err
 	}
-	if err := writeReport(opts.OutputDir, opts, summaries, best); err != nil {
+
+	var proofs []visualProofScenario
+	if opts.VisualProof && opts.Profile == "quick" {
+		proofs, err = runQuickVisualProof(opts)
+		if err != nil {
+			return err
+		}
+		if err := writeVisualProofFiles(opts.OutputDir, proofs); err != nil {
+			return err
+		}
+	}
+	if err := writeReport(opts.OutputDir, opts, summaries, best, proofs); err != nil {
 		return err
 	}
 
@@ -1551,14 +1571,22 @@ func (s scenario) config() (*mixnet.MixnetConfig, error) {
 }
 
 func setupMixnetNetwork(ctx context.Context, cfg *mixnet.MixnetConfig, relayCount int) (*mixnet.Mixnet, *mixnet.Mixnet, func(), error) {
-	originHost, err := newBenchHost()
+	network, err := setupBenchmarkNetwork(ctx, cfg, relayCount)
 	if err != nil {
 		return nil, nil, nil, err
+	}
+	return network.origin, network.dest, network.cleanup, nil
+}
+
+func setupBenchmarkNetwork(ctx context.Context, cfg *mixnet.MixnetConfig, relayCount int) (*benchmarkNetwork, error) {
+	originHost, err := newBenchHost()
+	if err != nil {
+		return nil, err
 	}
 	destHost, err := newBenchHost()
 	if err != nil {
 		_ = originHost.Close()
-		return nil, nil, nil, err
+		return nil, err
 	}
 	relayHosts := make([]host.Host, relayCount)
 	for i := range relayHosts {
@@ -1571,7 +1599,7 @@ func setupMixnetNetwork(ctx context.Context, cfg *mixnet.MixnetConfig, relayCoun
 			}
 			_ = originHost.Close()
 			_ = destHost.Close()
-			return nil, nil, nil, err
+			return nil, err
 		}
 		relayHosts[i] = h
 	}
@@ -1589,12 +1617,12 @@ func setupMixnetNetwork(ctx context.Context, cfg *mixnet.MixnetConfig, relayCoun
 
 	origin, err := mixnet.NewMixnet(cloneConfig(cfg), originHost, &staticRouting{providers: providers, peers: peerMap})
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("new origin mixnet: %w", err)
+		return nil, fmt.Errorf("new origin mixnet: %w", err)
 	}
 	dest, err := mixnet.NewMixnet(cloneConfig(cfg), destHost, nil)
 	if err != nil {
 		origin.ForceCloseForTest()
-		return nil, nil, nil, fmt.Errorf("new destination mixnet: %w", err)
+		return nil, fmt.Errorf("new destination mixnet: %w", err)
 	}
 	origin.RelayHandler().EnableLibp2pResourceManager(false)
 	origin.RelayHandler().SetMaxBandwidth(0)
@@ -1612,7 +1640,7 @@ func setupMixnetNetwork(ctx context.Context, cfg *mixnet.MixnetConfig, relayCoun
 			for _, existing := range relayMixes {
 				existing.ForceCloseForTest()
 			}
-			return nil, nil, nil, fmt.Errorf("new relay mixnet: %w", relayErr)
+			return nil, fmt.Errorf("new relay mixnet: %w", relayErr)
 		}
 		relayMix.RelayHandler().EnableLibp2pResourceManager(false)
 		relayMix.RelayHandler().SetMaxBandwidth(0)
@@ -1628,7 +1656,7 @@ func setupMixnetNetwork(ctx context.Context, cfg *mixnet.MixnetConfig, relayCoun
 		for _, relayMix := range relayMixes {
 			relayMix.ForceCloseForTest()
 		}
-		return nil, nil, nil, err
+		return nil, err
 	}
 	registerProtocols(allHosts, destHost.ID(), destHost.Addrs(), protocol.ID(mixnet.ProtocolID))
 	for _, h := range relayHosts {
@@ -1642,7 +1670,13 @@ func setupMixnetNetwork(ctx context.Context, cfg *mixnet.MixnetConfig, relayCoun
 			relayMix.ForceCloseForTest()
 		}
 	}
-	return origin, dest, cleanup, nil
+	return &benchmarkNetwork{
+		origin:    origin,
+		dest:      dest,
+		relays:    relayMixes,
+		cleanup:   cleanup,
+		relayHost: relayHosts,
+	}, nil
 }
 
 func newBenchHost() (host.Host, error) {
@@ -1892,6 +1926,7 @@ func writeMetadata(opts suiteOptions, scenarios []scenario) error {
 		"profile":     opts.Profile,
 		"generated":   time.Now().UTC().Format(time.RFC3339),
 		"runs":        opts.Runs,
+		"visualProof": opts.VisualProof,
 		"sizes":       opts.Sizes,
 		"hops":        opts.Hops,
 		"circuits":    opts.Circuits,

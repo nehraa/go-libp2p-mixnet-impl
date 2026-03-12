@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -75,6 +76,23 @@ type sessionRouteEntry struct {
 	lastActivity  time.Time
 }
 
+// FrameObservation captures what a relay actually saw for one forwarded frame.
+type FrameObservation struct {
+	Timestamp       time.Time
+	NodePeer        string
+	CircuitID       string
+	FrameVersion    byte
+	FrameLabel      string
+	BaseSessionID   string
+	RouteMode       string
+	InboundPeer     string
+	OutboundPeer    string
+	IsFinal         bool
+	PayloadLength   int
+	WirePreviewHex  string
+	WirePreviewText string
+}
+
 func MaxEncryptedPayloadSize() int {
 	const defaultMultiplier = 4
 
@@ -118,6 +136,7 @@ type Handler struct {
 	waitBandwidth           func(context.Context, int64) error
 	recordBandwidth         func(string, int64)
 	reportUtilization       func(int)
+	observeFrame            func(FrameObservation)
 }
 
 // NewHandler creates a new relay Handler with the specified limits.
@@ -143,6 +162,14 @@ func (h *Handler) SetSessionRouteIdleTimeout(timeout time.Duration) {
 	h.mu.Lock()
 	h.sessionRouteIdleTimeout = timeout
 	h.mu.Unlock()
+}
+
+// SetObservationHandler registers an optional callback for relay-frame
+// observations. It is intended for diagnostics and benchmark proof captures.
+func (h *Handler) SetObservationHandler(fn func(FrameObservation)) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.observeFrame = fn
 }
 
 // HandleStream implements the libp2p stream handler for incoming relay requests.
@@ -225,13 +252,13 @@ func (h *Handler) HandleStream(stream network.Stream) {
 				if len(key) == 0 {
 					return fmt.Errorf("missing circuit key")
 				}
-				return h.handleSessionSetupFrame(ctx, reader, circuitID, frameVersion, payloadLen, key, sessionRoutes)
+				return h.handleSessionSetupFrame(ctx, reader, circuitID, frameVersion, payloadLen, key, sessionRoutes, stream)
 			}
 			if frameVersion == frameVersionSessionDataHeaderOnly {
-				return h.handleSessionDataFrameStream(ctx, reader, circuitID, frameVersion, payloadLen, sessionRoutes)
+				return h.handleSessionDataFrameStream(ctx, reader, circuitID, frameVersion, payloadLen, sessionRoutes, stream)
 			}
 			if frameVersion == frameVersionSessionDataFullOnion {
-				return h.handleSessionDataFrame(ctx, reader, circuitID, frameVersion, payloadLen, sessionRoutes)
+				return h.handleSessionDataFrame(ctx, reader, circuitID, frameVersion, payloadLen, sessionRoutes, stream)
 			}
 			if frameVersion == frameVersionSessionClose {
 				return h.handleSessionCloseFrame(ctx, reader, circuitID, payloadLen, sessionRoutes)
@@ -304,6 +331,18 @@ func (h *Handler) HandleStream(stream network.Stream) {
 				dstPeer = nextPeer
 				dstIsFinal = isFinal
 			}
+			h.recordObservation(FrameObservation{
+				Timestamp:       time.Now(),
+				CircuitID:       circuitID,
+				FrameVersion:    frameVersion,
+				FrameLabel:      frameVersionLabel(frameVersion),
+				InboundPeer:     peerString(stream.Conn().RemotePeer()),
+				OutboundPeer:    peerString(dstPeer),
+				IsFinal:         isFinal,
+				PayloadLength:   len(encPayload),
+				WirePreviewHex:  previewHex(encPayload),
+				WirePreviewText: previewText(encPayload),
+			})
 
 			// Apply bandwidth limit as a rate-limited writer if configured (Req 20.2, 20.4).
 			var writer io.Writer = dst
@@ -423,6 +462,18 @@ func (h *Handler) handleHeaderOnlyFrameStream(ctx context.Context, reader *bufio
 		*dstPeer = nextPeerDecoded
 		*dstIsFinal = isFinal
 	}
+	h.recordObservation(FrameObservation{
+		Timestamp:       time.Now(),
+		CircuitID:       circuitID,
+		FrameVersion:    frameVersionHeaderOnly,
+		FrameLabel:      frameVersionLabel(frameVersionHeaderOnly),
+		InboundPeer:     peerString(src.Conn().RemotePeer()),
+		OutboundPeer:    peerString(*dstPeer),
+		IsFinal:         isFinal,
+		PayloadLength:   payloadLen,
+		WirePreviewHex:  previewHex(joinPreviewBytes(lenBuf[:], encryptedHeader, peekReaderBytes(reader, dataPayloadLen))),
+		WirePreviewText: previewText(joinPreviewBytes(lenBuf[:], encryptedHeader, peekReaderBytes(reader, dataPayloadLen))),
+	})
 
 	var writer io.Writer = *dst
 	if maxBandwidth > 0 {
@@ -468,7 +519,7 @@ func (h *Handler) handleHeaderOnlyFrameStream(ctx context.Context, reader *bufio
 	return err
 }
 
-func (h *Handler) handleSessionSetupFrame(ctx context.Context, reader *bufio.Reader, circuitID string, frameVersion byte, payloadLen int, key []byte, sessionRoutes map[string]*sessionRouteEntry) error {
+func (h *Handler) handleSessionSetupFrame(ctx context.Context, reader *bufio.Reader, circuitID string, frameVersion byte, payloadLen int, key []byte, sessionRoutes map[string]*sessionRouteEntry, src network.Stream) error {
 	payload := make([]byte, payloadLen)
 	if _, err := io.ReadFull(reader, payload); err != nil {
 		return err
@@ -519,6 +570,20 @@ func (h *Handler) handleSessionSetupFrame(ctx context.Context, reader *bufio.Rea
 		delete(sessionRoutes, baseID)
 		return err
 	}
+	h.recordObservation(FrameObservation{
+		Timestamp:       time.Now(),
+		CircuitID:       circuitID,
+		FrameVersion:    frameVersion,
+		FrameLabel:      frameVersionLabel(frameVersion),
+		BaseSessionID:   baseID,
+		RouteMode:       routeModeLabel(mode),
+		InboundPeer:     peerString(src.Conn().RemotePeer()),
+		OutboundPeer:    peerString(route.nextPeer),
+		IsFinal:         isFinal,
+		PayloadLength:   payloadLen,
+		WirePreviewHex:  previewHex(payload),
+		WirePreviewText: previewText(payload),
+	})
 	var writer io.Writer = dst
 	if maxBandwidth > 0 {
 		writer = &rateLimitedWriter{w: dst, bytesPerSec: maxBandwidth}
@@ -546,7 +611,7 @@ func (h *Handler) handleSessionSetupFrame(ctx context.Context, reader *bufio.Rea
 	return nil
 }
 
-func (h *Handler) handleSessionDataFrame(ctx context.Context, reader *bufio.Reader, circuitID string, frameVersion byte, payloadLen int, sessionRoutes map[string]*sessionRouteEntry) error {
+func (h *Handler) handleSessionDataFrame(ctx context.Context, reader *bufio.Reader, circuitID string, frameVersion byte, payloadLen int, sessionRoutes map[string]*sessionRouteEntry, src network.Stream) error {
 	payload := make([]byte, payloadLen)
 	if _, err := io.ReadFull(reader, payload); err != nil {
 		return err
@@ -574,6 +639,20 @@ func (h *Handler) handleSessionDataFrame(ctx context.Context, reader *bufio.Read
 	if err != nil {
 		return err
 	}
+	h.recordObservation(FrameObservation{
+		Timestamp:       time.Now(),
+		CircuitID:       circuitID,
+		FrameVersion:    frameVersion,
+		FrameLabel:      frameVersionLabel(frameVersion),
+		BaseSessionID:   baseID,
+		RouteMode:       routeModeLabel(route.mode),
+		InboundPeer:     peerString(src.Conn().RemotePeer()),
+		OutboundPeer:    peerString(route.nextPeer),
+		IsFinal:         route.isFinal,
+		PayloadLength:   payloadLen,
+		WirePreviewHex:  previewHex(payload),
+		WirePreviewText: previewText(payload),
+	})
 	var writer io.Writer = dst
 	if maxBandwidth > 0 {
 		writer = &rateLimitedWriter{w: dst, bytesPerSec: maxBandwidth}
@@ -599,7 +678,7 @@ func (h *Handler) handleSessionDataFrame(ctx context.Context, reader *bufio.Read
 	return nil
 }
 
-func (h *Handler) handleSessionDataFrameStream(ctx context.Context, reader *bufio.Reader, circuitID string, frameVersion byte, payloadLen int, sessionRoutes map[string]*sessionRouteEntry) error {
+func (h *Handler) handleSessionDataFrameStream(ctx context.Context, reader *bufio.Reader, circuitID string, frameVersion byte, payloadLen int, sessionRoutes map[string]*sessionRouteEntry, src network.Stream) error {
 	h.mu.RLock()
 	recordBandwidth := h.recordBandwidth
 	waitBandwidth := h.waitBandwidth
@@ -621,6 +700,20 @@ func (h *Handler) handleSessionDataFrameStream(ctx context.Context, reader *bufi
 	if err != nil {
 		return err
 	}
+	h.recordObservation(FrameObservation{
+		Timestamp:       time.Now(),
+		CircuitID:       circuitID,
+		FrameVersion:    frameVersion,
+		FrameLabel:      frameVersionLabel(frameVersion),
+		BaseSessionID:   baseID,
+		RouteMode:       routeModeLabel(route.mode),
+		InboundPeer:     peerString(src.Conn().RemotePeer()),
+		OutboundPeer:    peerString(route.nextPeer),
+		IsFinal:         route.isFinal,
+		PayloadLength:   payloadLen,
+		WirePreviewHex:  previewHex(joinPreviewBytes(controlPrefix, peekReaderBytes(reader, dataPayloadLen))),
+		WirePreviewText: previewText(joinPreviewBytes(controlPrefix, peekReaderBytes(reader, dataPayloadLen))),
+	})
 	var writer io.Writer = dst
 	if maxBandwidth > 0 {
 		writer = &rateLimitedWriter{w: dst, bytesPerSec: maxBandwidth}
@@ -759,6 +852,128 @@ func (h *Handler) closeSessionRoute(route *sessionRouteEntry) {
 	}
 	_ = route.dst.Close()
 	route.dst = nil
+}
+
+func (h *Handler) recordObservation(obs FrameObservation) {
+	h.mu.RLock()
+	host := h.host
+	fn := h.observeFrame
+	h.mu.RUnlock()
+	if fn == nil {
+		return
+	}
+	if host != nil && obs.NodePeer == "" {
+		obs.NodePeer = peerString(host.ID())
+	}
+	if obs.Timestamp.IsZero() {
+		obs.Timestamp = time.Now()
+	}
+	fn(obs)
+}
+
+func frameVersionLabel(version byte) string {
+	switch version {
+	case frameVersionFullOnion:
+		return "full-onion"
+	case frameVersionHeaderOnly:
+		return "header-only"
+	case frameVersionSessionSetupHeaderOnly:
+		return "session-setup-header-only"
+	case frameVersionSessionDataHeaderOnly:
+		return "session-data-header-only"
+	case frameVersionSessionSetupFullOnion:
+		return "session-setup-full-onion"
+	case frameVersionSessionDataFullOnion:
+		return "session-data-full-onion"
+	case frameVersionSessionClose:
+		return "session-close"
+	default:
+		return fmt.Sprintf("unknown-0x%02x", version)
+	}
+}
+
+func routeModeLabel(mode byte) string {
+	switch mode {
+	case sessionRouteModeHeaderOnly:
+		return "header-only"
+	case sessionRouteModeFullOnion:
+		return "full-onion"
+	default:
+		return fmt.Sprintf("unknown-0x%02x", mode)
+	}
+}
+
+func joinPreviewBytes(parts ...[]byte) []byte {
+	const previewLimit = 24
+	out := make([]byte, 0, previewLimit)
+	for _, part := range parts {
+		if len(out) >= previewLimit {
+			break
+		}
+		need := previewLimit - len(out)
+		if len(part) > need {
+			part = part[:need]
+		}
+		out = append(out, part...)
+	}
+	return out
+}
+
+func peekReaderBytes(reader *bufio.Reader, maxLen int) []byte {
+	if reader == nil || maxLen <= 0 {
+		return nil
+	}
+	const previewLimit = 24
+	n := maxLen
+	if n > previewLimit {
+		n = previewLimit
+	}
+	data, err := reader.Peek(n)
+	if err != nil && len(data) == 0 {
+		return nil
+	}
+	return append([]byte(nil), data...)
+}
+
+func previewHex(data []byte) string {
+	if len(data) == 0 {
+		return ""
+	}
+	const previewLimit = 24
+	if len(data) > previewLimit {
+		data = data[:previewLimit]
+	}
+	parts := make([]string, 0, len(data))
+	for _, b := range data {
+		parts = append(parts, fmt.Sprintf("%02x", b))
+	}
+	return strings.Join(parts, " ")
+}
+
+func previewText(data []byte) string {
+	if len(data) == 0 {
+		return ""
+	}
+	const previewLimit = 24
+	if len(data) > previewLimit {
+		data = data[:previewLimit]
+	}
+	out := make([]byte, len(data))
+	for i, b := range data {
+		if b >= 32 && b <= 126 {
+			out[i] = b
+			continue
+		}
+		out[i] = '.'
+	}
+	return string(out)
+}
+
+func peerString(id peer.ID) string {
+	if id == "" {
+		return ""
+	}
+	return id.String()
 }
 
 func writeEncryptedFrameHeaderOnlyPayloadPrefix(ctx context.Context, w io.Writer, circuitID string, version byte, payloadLen int, controlPrefix []byte, waitBandwidth func(context.Context, int64) error, recordBandwidth func(string, int64)) (int, error) {

@@ -82,6 +82,12 @@ func TestProductionSanity(t *testing.T) {
 		if !cfg.UseCESPipeline || !cfg.HeaderPaddingEnabled || cfg.EncryptionMode != EncryptionModeFull {
 			t.Fatalf("unexpected defaults: %+v", cfg)
 		}
+		if cfg.EnableSessionRouting {
+			t.Fatal("session routing should be disabled by default")
+		}
+		if cfg.SessionRouteIdleTimeout != 30*time.Second {
+			t.Fatalf("unexpected default session route timeout: got %s want %s", cfg.SessionRouteIdleTimeout, 30*time.Second)
+		}
 		if err := cfg.SetHopCount(3); err != nil {
 			t.Fatalf("set hop count: %v", err)
 		}
@@ -115,6 +121,12 @@ func TestProductionSanity(t *testing.T) {
 		if err := cfg.SetPayloadPaddingBuckets([]int{64, 256}); err != nil {
 			t.Fatalf("set padding buckets: %v", err)
 		}
+		if err := cfg.SetEnableSessionRouting(true); err != nil {
+			t.Fatalf("set session routing: %v", err)
+		}
+		if err := cfg.SetSessionRouteIdleTimeout(5 * time.Second); err != nil {
+			t.Fatalf("set session route timeout: %v", err)
+		}
 		if err := cfg.SetAuthTag(true, 16); err != nil {
 			t.Fatalf("set auth tag: %v", err)
 		}
@@ -131,6 +143,9 @@ func TestProductionSanity(t *testing.T) {
 		if !cfg.UseCSE {
 			t.Fatal("expected CSE flag to be enabled")
 		}
+		if !cfg.EnableSessionRouting || cfg.SessionRouteIdleTimeout != 5*time.Second {
+			t.Fatalf("session routing setters not applied: enabled=%v timeout=%s", cfg.EnableSessionRouting, cfg.SessionRouteIdleTimeout)
+		}
 		if got := cfg.GetErasureThreshold(); got != cfg.CircuitCount {
 			t.Fatalf("non-CES threshold mismatch: got %d want %d", got, cfg.CircuitCount)
 		}
@@ -139,6 +154,12 @@ func TestProductionSanity(t *testing.T) {
 		locked.Lock()
 		if err := locked.SetHopCount(5); !errors.Is(err, ErrConfigImmutable) {
 			t.Fatalf("expected immutable config error, got %v", err)
+		}
+		if err := locked.SetEnableSessionRouting(true); err == nil {
+			t.Fatal("expected locked session routing setter to fail")
+		}
+		if err := locked.SetSessionRouteIdleTimeout(time.Second); err == nil {
+			t.Fatal("expected locked session timeout setter to fail")
 		}
 
 		bad := &MixnetConfig{
@@ -173,6 +194,7 @@ func TestProductionSanity(t *testing.T) {
 			{"bad bucket padding", &MixnetConfig{HopCount: 2, CircuitCount: 2, UseCESPipeline: false, PayloadPaddingStrategy: PaddingStrategyBuckets, PayloadPaddingBuckets: []int{16, 8}}},
 			{"bad auth tag", &MixnetConfig{HopCount: 2, CircuitCount: 2, UseCESPipeline: false, EnableAuthTag: true, AuthTagSize: 64}},
 			{"bad header padding", &MixnetConfig{HopCount: 2, CircuitCount: 2, UseCESPipeline: false, HeaderPaddingEnabled: true, HeaderPaddingMin: 8, HeaderPaddingMax: 0}},
+			{"bad session route timeout", &MixnetConfig{HopCount: 2, CircuitCount: 2, UseCESPipeline: false, SessionRouteIdleTimeout: -1 * time.Second}},
 		}
 
 		for _, tc := range cases {
@@ -1222,6 +1244,39 @@ func TestProductionSanity(t *testing.T) {
 			wait("", payload)
 		})
 
+		t.Run("header-only routed cse send", func(t *testing.T) {
+			cfg := &MixnetConfig{
+				HopCount:                1,
+				CircuitCount:            3,
+				Compression:             "gzip",
+				UseCESPipeline:          false,
+				UseCSE:                  true,
+				EnableSessionRouting:    true,
+				SessionRouteIdleTimeout: 2 * time.Second,
+				EncryptionMode:          EncryptionModeHeaderOnly,
+				HeaderPaddingEnabled:    false,
+				PayloadPaddingStrategy:  PaddingStrategyNone,
+				EnableAuthTag:           true,
+				AuthTagSize:             16,
+				SelectionMode:           SelectionModeRandom,
+				SamplingSize:            9,
+				RandomnessFactor:        0.3,
+				MaxJitter:               0,
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
+			defer cancel()
+
+			origin, dest, _, cleanup := setupMixnetNetwork(t, ctx, cfg, 9)
+			defer cleanup()
+
+			wait := expectInboundPayload(t, ctx, dest)
+			payload := bytes.Repeat([]byte("routed-cse-"), 2048)
+			if err := origin.Send(ctx, dest.Host().ID(), payload); err != nil {
+				t.Fatalf("header-only routed cse send: %v", err)
+			}
+			wait("", payload)
+		})
+
 		cfg := &MixnetConfig{
 			HopCount:               1,
 			CircuitCount:           3,
@@ -1439,6 +1494,192 @@ func TestProductionSanity(t *testing.T) {
 			eofBuf := make([]byte, 1)
 			if _, err := routedDestStream.Read(eofBuf); !errors.Is(err, io.EOF) {
 				t.Fatalf("expected EOF after routed close, got %v", err)
+			}
+		})
+
+		t.Run("session routing re-establishes after idle timeout", func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+			defer cancel()
+
+			routedCfg := cloneConfig(cfg)
+			routedCfg.EnableSessionRouting = true
+			routedCfg.SessionRouteIdleTimeout = 250 * time.Millisecond
+			routedCfg.EncryptionMode = EncryptionModeHeaderOnly
+
+			origin, dest, _, cleanup := setupMixnetNetwork(t, ctx, routedCfg, 9)
+			defer cleanup()
+
+			acceptCh := make(chan *MixStream, 1)
+			errCh := make(chan error, 1)
+			go func() {
+				s, err := dest.AcceptStream(ctx)
+				if err != nil {
+					errCh <- err
+					return
+				}
+				acceptCh <- s
+			}()
+
+			originStream, err := origin.OpenStream(ctx, dest.Host().ID())
+			if err != nil {
+				t.Fatalf("open routed timeout stream: %v", err)
+			}
+			defer originStream.Close()
+
+			first := []byte("routed-before-timeout")
+			if _, err := originStream.Write(first); err != nil {
+				t.Fatalf("write first routed timeout payload: %v", err)
+			}
+
+			var destStream *MixStream
+			select {
+			case err := <-errCh:
+				t.Fatalf("accept routed timeout stream: %v", err)
+			case destStream = <-acceptCh:
+			case <-time.After(5 * time.Second):
+				t.Fatal("timeout waiting for routed timeout accept stream")
+			}
+			defer destStream.Close()
+
+			if got := readExactlyOneMessage(t, destStream, len(first)); !bytes.Equal(got, first) {
+				t.Fatalf("first routed timeout payload mismatch: got %q want %q", got, first)
+			}
+
+			time.Sleep(500 * time.Millisecond)
+
+			second := []byte("routed-after-timeout")
+			if _, err := originStream.Write(second); err != nil {
+				t.Fatalf("write second routed timeout payload: %v", err)
+			}
+			if got := readExactlyOneMessage(t, destStream, len(second)); !bytes.Equal(got, second) {
+				t.Fatalf("second routed timeout payload mismatch: got %q want %q", got, second)
+			}
+		})
+
+		t.Run("relay and destination observation hooks", func(t *testing.T) {
+			cases := []struct {
+				name               string
+				mode               EncryptionMode
+				sessionRouting     bool
+				wantRelayFrame     string
+				wantDeliveryFrames []string
+				forbidRelayFrame   string
+				forbidPayloadText  string
+			}{
+				{
+					name:               "header-only-routed",
+					mode:               EncryptionModeHeaderOnly,
+					sessionRouting:     true,
+					wantRelayFrame:     "session-data-header-only",
+					wantDeliveryFrames: []string{"session-setup", "session-data"},
+					forbidRelayFrame:   "full-onion",
+					forbidPayloadText:  "observer-payload",
+				},
+				{
+					name:               "full-onion-legacy",
+					mode:               EncryptionModeFull,
+					sessionRouting:     true,
+					wantRelayFrame:     "full-onion",
+					wantDeliveryFrames: []string{"data"},
+					forbidRelayFrame:   "session-data-header-only",
+					forbidPayloadText:  "observer-payload",
+				},
+			}
+
+			for _, tc := range cases {
+				t.Run(tc.name, func(t *testing.T) {
+					ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+					defer cancel()
+
+					proofCfg := cloneConfig(cfg)
+					proofCfg.EncryptionMode = tc.mode
+					proofCfg.EnableSessionRouting = tc.sessionRouting
+					proofCfg.SessionRouteIdleTimeout = 2 * time.Second
+
+					origin, dest, relayMixes, cleanup := setupMixnetNetwork(t, ctx, proofCfg, 9)
+					defer cleanup()
+
+					relayObsCh := make(chan relay.FrameObservation, 32)
+					destObsCh := make(chan FinalDeliveryObservation, 16)
+					for _, rm := range relayMixes {
+						rm.RelayHandler().SetObservationHandler(func(obs relay.FrameObservation) {
+							select {
+							case relayObsCh <- obs:
+							default:
+							}
+						})
+					}
+					dest.SetDeliveryObservationHandler(func(obs FinalDeliveryObservation) {
+						select {
+						case destObsCh <- obs:
+						default:
+						}
+					})
+
+					acceptCh := make(chan *MixStream, 1)
+					errCh := make(chan error, 1)
+					go func() {
+						s, err := dest.AcceptStream(ctx)
+						if err != nil {
+							errCh <- err
+							return
+						}
+						acceptCh <- s
+					}()
+
+					originStream, err := origin.OpenStream(ctx, dest.Host().ID())
+					if err != nil {
+						t.Fatalf("open observer stream: %v", err)
+					}
+					defer originStream.Close()
+
+					payload := []byte("observer-payload-hello-world")
+					if _, err := originStream.Write(payload); err != nil {
+						t.Fatalf("write observer payload: %v", err)
+					}
+
+					var destStream *MixStream
+					select {
+					case err := <-errCh:
+						t.Fatalf("accept observer stream: %v", err)
+					case destStream = <-acceptCh:
+					case <-time.After(5 * time.Second):
+						t.Fatal("timeout waiting for observer accept stream")
+					}
+					defer destStream.Close()
+
+					if got := readExactlyOneMessage(t, destStream, len(payload)); !bytes.Equal(got, payload) {
+						t.Fatalf("observer payload mismatch: got %q want %q", got, payload)
+					}
+
+					time.Sleep(200 * time.Millisecond)
+
+					relayObs := drainRelayObservations(relayObsCh)
+					if len(relayObs) == 0 {
+						t.Fatal("expected relay observations")
+					}
+					destObs := drainDeliveryObservations(destObsCh)
+					if len(destObs) == 0 {
+						t.Fatal("expected destination delivery observations")
+					}
+
+					if !hasRelayFrame(relayObs, tc.wantRelayFrame) {
+						t.Fatalf("missing relay observation frame %q in %+v", tc.wantRelayFrame, relayObs)
+					}
+					if tc.forbidRelayFrame != "" && hasRelayFrame(relayObs, tc.forbidRelayFrame) {
+						t.Fatalf("unexpected relay observation frame %q in %+v", tc.forbidRelayFrame, relayObs)
+					}
+					for _, obs := range relayObs {
+						if strings.Contains(obs.WirePreviewText, tc.forbidPayloadText) {
+							t.Fatalf("relay preview leaked cleartext payload %q: %+v", tc.forbidPayloadText, obs)
+						}
+					}
+					for _, frame := range tc.wantDeliveryFrames {
+						if !hasDeliveryFrame(destObs, frame) {
+							t.Fatalf("missing destination delivery frame %q in %+v", frame, destObs)
+						}
+					}
+				})
 			}
 		})
 
@@ -2226,6 +2467,48 @@ func forceCloseMixnetForTest(m *Mixnet) {
 		}
 	}
 	_ = m.host.Close()
+}
+
+func drainRelayObservations(ch <-chan relay.FrameObservation) []relay.FrameObservation {
+	out := make([]relay.FrameObservation, 0)
+	for {
+		select {
+		case obs := <-ch:
+			out = append(out, obs)
+		default:
+			return out
+		}
+	}
+}
+
+func drainDeliveryObservations(ch <-chan FinalDeliveryObservation) []FinalDeliveryObservation {
+	out := make([]FinalDeliveryObservation, 0)
+	for {
+		select {
+		case obs := <-ch:
+			out = append(out, obs)
+		default:
+			return out
+		}
+	}
+}
+
+func hasRelayFrame(observations []relay.FrameObservation, want string) bool {
+	for _, obs := range observations {
+		if obs.FrameLabel == want {
+			return true
+		}
+	}
+	return false
+}
+
+func hasDeliveryFrame(observations []FinalDeliveryObservation, want string) bool {
+	for _, obs := range observations {
+		if obs.MessageType == want {
+			return true
+		}
+	}
+	return false
 }
 
 func waitData(t *testing.T, ch <-chan []byte, timeout time.Duration) []byte {

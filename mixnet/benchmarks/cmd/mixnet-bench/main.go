@@ -30,14 +30,15 @@ func parseOptions() (suiteOptions, error) {
 	defaultOutput := filepath.Join("mixnet", "benchmarks", "output", time.Now().Format("20060102-150405"))
 
 	var (
-		profile   = flag.String("profile", "full", "benchmark profile: smoke, quick, or full")
-		outputDir = flag.String("output-dir", defaultOutput, "directory for raw data, summaries, and graphs")
-		sizes     = flag.String("sizes", "", "comma-separated sizes like 1KB,64KB,1MB,50MB (overrides profile)")
-		hops      = flag.String("hops", "", "comma-separated hop counts (overrides profile)")
-		circuits  = flag.String("circuits", "", "comma-separated circuit counts (overrides profile)")
-		runs      = flag.Int("runs", 0, "runs per scenario and size (overrides profile)")
-		groups    = flag.String("groups", "", "comma-separated benchmark groups (overrides profile)")
-		timeout   = flag.Duration("timeout", 0, "per-run timeout (default depends on selected sizes)")
+		profile     = flag.String("profile", "full", "benchmark profile: smoke, quick, or full")
+		outputDir   = flag.String("output-dir", defaultOutput, "directory for raw data, summaries, graphs, and proof artifacts")
+		sizes       = flag.String("sizes", "", "comma-separated sizes like 1KB,64KB,1MB,50MB (overrides profile)")
+		hops        = flag.String("hops", "", "comma-separated hop counts (overrides profile)")
+		circuits    = flag.String("circuits", "", "comma-separated circuit counts (overrides profile)")
+		runs        = flag.Int("runs", 0, "runs per scenario and size (overrides profile)")
+		groups      = flag.String("groups", "", "comma-separated benchmark groups (overrides profile)")
+		timeout     = flag.Duration("timeout", 0, "per-run timeout (default depends on selected sizes)")
+		visualProof = flag.Bool("visual-proof", true, "generate the post-run 64KB live proof capture for quick profile")
 	)
 	flag.Parse()
 
@@ -47,6 +48,7 @@ func parseOptions() (suiteOptions, error) {
 	}
 	opts.OutputDir = *outputDir
 	opts.Timeout = *timeout
+	opts.VisualProof = *visualProof
 
 	if strings.TrimSpace(*sizes) != "" {
 		opts.SizeSpec = *sizes
