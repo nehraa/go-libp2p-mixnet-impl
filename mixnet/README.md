@@ -25,7 +25,7 @@ At a high level:
 
 ## Session-routing mode
 
-This branch adds an opt-in wire mode controlled by
+The package supports an opt-in wire mode controlled by
 `MixnetConfig.EnableSessionRouting`.
 
 - `EnableSessionRouting=false` keeps the legacy behavior. Each write or
