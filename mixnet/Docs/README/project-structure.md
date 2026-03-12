@@ -24,6 +24,7 @@ mixnet/
 | `README.md` | Package-level guide that explains the public API surface, major directories, and where to find deeper narrative documentation. |
 | `doc.go` | Package comment for Go documentation tooling, including the end-to-end protocol flow and major implementation areas. |
 | `auth_tag.go` | Creates and verifies optional per-shard authenticity tags used to reject tampered traffic early. |
+| `benchmark_exports.go` | Exports internal helpers for benchmark and test tooling. Not part of the public API. |
 | `config.go` | Defines `MixnetConfig`, configuration defaults, validation rules, and helper accessors for derived values such as the shard reconstruction threshold. |
 | `errors.go` | Defines the structured `MixnetError` type and the error constructors used by the public API. |
 | `failure_detection.go` | Watches established circuits, records heartbeat state, and triggers circuit failure notifications and recovery paths. |
@@ -34,7 +35,7 @@ mixnet/
 | `onion.go` | Builds and unwraps per-hop onion routing state used to forward traffic through the relay chain. |
 | `onion_header.go` | Encodes and decodes the on-wire privacy header fields carried alongside each shard. |
 | `padding.go` | Implements header padding and payload size padding strategies used to reduce traffic-analysis signals. |
-| `privacy.go` | Defines privacy logging controls and the manager that applies those controls. |
+| `privacy.go` | Defines privacy logging controls, the `PrivacyManager`, and helpers such as `ZeroKnowledgeLog` and `VerifyPrivacyInvariants`. |
 | `privacy_transport.go` | Defines the transport message format, shard metadata, and destination-side shard parsing/reassembly helpers. |
 | `relay_discovery.go` | Connects the main `Mixnet` runtime to the relay discovery package and optional cover-traffic helpers. |
 | `resource_management.go` | Enforces relay resource limits and integrates those limits with the mixnet runtime. |

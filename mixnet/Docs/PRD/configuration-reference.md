@@ -372,9 +372,13 @@ After circuits are active, treat the config as read-only.
 
 ---
 
-## Timeout Configuration
+## Internal Timeout Defaults
 
-### `ConstructionTimeout`
+The following timeouts are used internally by the implementation but are
+**not fields on `MixnetConfig`**. They are either hard-coded constants or
+derived from other runtime state. They are documented here for reference.
+
+### `ConstructionTimeout` (internal)
 - **Type**: `time.Duration`
 - **Default**: 30 seconds
 - **Description**: Maximum time to establish all circuits
@@ -382,7 +386,7 @@ After circuits are active, treat the config as read-only.
   - Increase for slow networks
   - Decrease for fast networks
 
-### `HealthCheckInterval`
+### `HealthCheckInterval` (internal)
 - **Type**: `time.Duration`
 - **Default**: 10 seconds
 - **Description**: Interval between circuit health checks
@@ -390,7 +394,7 @@ After circuits are active, treat the config as read-only.
   - Decrease for faster failure detection
   - Increase to reduce overhead
 
-### `ShardReceptionTimeout`
+### `ShardReceptionTimeout` (internal)
 - **Type**: `time.Duration`
 - **Default**: 30 seconds
 - **Description**: Maximum time to wait for shard reconstruction
@@ -398,7 +402,7 @@ After circuits are active, treat the config as read-only.
   - Increase for slow networks
   - Decrease for fast networks
 
-### `GracefulShutdownTimeout`
+### `GracefulShutdownTimeout` (internal)
 - **Type**: `time.Duration`
 - **Default**: 10 seconds
 - **Description**: Maximum time to wait for close acknowledgments
