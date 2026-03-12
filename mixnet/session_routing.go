@@ -33,6 +33,11 @@ type senderSessionRouteState struct {
 	timer          *time.Timer
 	lastUsed       time.Time
 	setupByCircuit map[string]struct{}
+	nextSeq        uint64
+}
+
+func sessionRoutingEnabled(cfg *MixnetConfig) bool {
+	return cfg != nil && cfg.EnableSessionRouting && cfg.EncryptionMode == EncryptionModeHeaderOnly
 }
 
 func sessionRouteModeForConfig(cfg *MixnetConfig) sessionRouteMode {

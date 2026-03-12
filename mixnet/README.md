@@ -32,9 +32,11 @@ This branch adds an opt-in wire mode controlled by
   `SendWithSession` call carries the full routing/setup material needed for
   that message.
 - `EnableSessionRouting=true` switches to a setup-once/data-later protocol.
-  The first use of a `(baseSessionID, circuitID)` sends a setup frame. Later
-  writes on that same base session send smaller session-data frames that reuse
-  cached route and session state.
+  In the current implementation this optimization is used by the header-only
+  transport path. The first use of a `(baseSessionID, circuitID)` sends a
+  setup frame. Later header-only writes on that same base session send smaller
+  session-data frames that reuse cached route and session state. Full onion
+  stays on the legacy per-frame onion path.
 - `SessionRouteIdleTimeout` controls how long sender, relay, and destination
   keep routed-session state alive when no more data arrives. The default is
   `30s`.
@@ -67,7 +69,7 @@ copying at relay hops.
 Session-routing does not turn relays into destination-aware forwarders. A relay
 stores route state per inbound authenticated libp2p stream and per
 `baseSessionID`, then reuses that cached next-hop or final-hop state for later
-session-data frames.
+header-only session-data frames.
 
 - Off-path network attackers cannot inject bytes into an established relay
   stream. The adjacent libp2p hop is already on an authenticated encrypted

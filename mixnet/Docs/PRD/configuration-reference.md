@@ -44,7 +44,7 @@ validation.
 | `UseCSE` | `true`, `false` | Enables the non-CES Compress-Shard-Encrypt fast path. | Lets multi-circuit receivers decrypt shards independently on arrival. | `false` keeps the default behavior centered on the main CES and non-CSE flows until CSE is explicitly requested. |
 | `ErasureThreshold` | `1..CircuitCount`, or `0` for auto | Controls how many shards must arrive before reconstruction can succeed. | Lower thresholds tolerate loss; higher thresholds reduce reconstruction ambiguity and overhead. | `0` lets the implementation derive `ceil(CircuitCount * 0.6)`, which is a balanced recovery threshold for most deployments. |
 | `EncryptionMode` | `full`, `header-only` | Chooses whether each hop decrypts only routing headers or the entire payload layer. | Gives operators a way to reduce per-hop CPU cost for large payloads. | `full` is the default because it favors stronger layered protection over throughput optimizations. |
-| `EnableSessionRouting` | `true`, `false` | Switches between legacy per-write routing and setup-once/data-later session routing. | Reused streams and sessions avoid repeating route/setup work on every write. | `false` preserves the existing wire behavior until deployments opt in explicitly. |
+| `EnableSessionRouting` | `true`, `false` | Enables setup-once/data-later session routing for header-only repeated writes and reused sessions. | Reused header-only streams avoid repeating route/setup work on every write. | `false` preserves the existing wire behavior until deployments opt in explicitly. |
 | `SessionRouteIdleTimeout` | duration, `>= 0` | Controls how long routed-session state is cached when idle. | Bounds memory/state lifetime while still allowing setup reuse across nearby writes. | `30s` allows short pauses in stream writes without keeping routed state forever. |
 
 ### Traffic-analysis resistance flags
@@ -193,7 +193,8 @@ validation.
 - **Type**: `bool`
 - **Default**: `false`
 - **Description**: Enables the opt-in setup-once/data-later wire mode for
-  repeated `MixStream.Write` calls and reused `SendWithSession` base sessions
+  repeated header-only `MixStream.Write` calls and reused `SendWithSession`
+  base sessions
 - **When to Enable**:
   - long-lived streams with many writes
   - repeated `SendWithSession` calls that intentionally reuse a base session ID
@@ -203,6 +204,7 @@ validation.
   - ✅ lets relays reuse cached next-hop or final-hop state
   - ❌ shifts some route privacy cost to the initial setup only
   - ❌ requires peers on the path to support the new mixnet-internal frame type
+  - ❌ does not apply to full onion, which stays on the legacy per-frame onion path
 
 ### `SessionRouteIdleTimeout`
 - **Type**: `time.Duration`

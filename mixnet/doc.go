@@ -22,9 +22,10 @@
 // Session-routing is an opt-in wire mode behind
 // MixnetConfig.EnableSessionRouting. When disabled, the runtime keeps the
 // legacy behavior where each write carries full routing/setup material. When
-// enabled, the first use of a (base session, circuit) sends a setup frame and
-// later writes send lighter session-data frames until SessionRouteIdleTimeout
-// expires or the stream closes.
+// enabled for header-only mode, the first use of a (base session, circuit)
+// sends a setup frame and later writes send lighter session-data frames until
+// SessionRouteIdleTimeout expires or the stream closes. Full onion continues to
+// use the legacy per-frame onion path.
 //
 // The package is intentionally organized around those stages:
 //

@@ -71,8 +71,8 @@ func writeReport(outputDir string, opts suiteOptions, summaries []summaryRecord,
 		if err := addChart("Quick routed stream latency (256KB writes, 2 hops, 1 circuit)", "graphs/quick_c1_latency.svg", "Mean total latency (ms)",
 			[]chartSeries{
 				rawChartSeries("Direct stream", "#1f77b4", lookup, "focused-direct-baseline"),
-				rawChartSeries("Header-only", "#2ca02c", lookup, "focused-header-only-c1-routed"),
-				rawChartSeries("Full onion", "#9467bd", lookup, "focused-full-c1-routed"),
+				rawChartSeries("Header-only routed", "#2ca02c", lookup, "focused-header-only-c1-routed"),
+				rawChartSeries("Full onion legacy", "#9467bd", lookup, "focused-full-c1-legacy"),
 			},
 			func(summary summaryRecord) float64 { return summary.TotalMeanMS },
 		); err != nil {
@@ -81,8 +81,8 @@ func writeReport(outputDir string, opts suiteOptions, summaries []summaryRecord,
 		if err := addChart("Quick routed stream throughput (256KB writes, 2 hops, 1 circuit)", "graphs/quick_c1_throughput.svg", "Mean throughput (MiB/s)",
 			[]chartSeries{
 				rawChartSeries("Direct stream", "#1f77b4", lookup, "focused-direct-baseline"),
-				rawChartSeries("Header-only", "#2ca02c", lookup, "focused-header-only-c1-routed"),
-				rawChartSeries("Full onion", "#9467bd", lookup, "focused-full-c1-routed"),
+				rawChartSeries("Header-only routed", "#2ca02c", lookup, "focused-header-only-c1-routed"),
+				rawChartSeries("Full onion legacy", "#9467bd", lookup, "focused-full-c1-legacy"),
 			},
 			func(summary summaryRecord) float64 { return summary.ThroughputMeanMBps },
 		); err != nil {
@@ -94,7 +94,7 @@ func writeReport(outputDir string, opts suiteOptions, summaries []summaryRecord,
 	if opts.Profile == "full" {
 		adjustmentNote = "Full runs do not generate graphs. Use raw_runs.csv and summary.csv for the full data dump, including CES scenarios."
 	} else if opts.Profile == "quick" {
-		adjustmentNote = "Quick uses fixed 256KB application writes and compares direct libp2p against header-only and full-onion mixnet with session routing enabled at 2 hops and 1 circuit. The tables below show exact latency and throughput values plus percent deltas. In routed mode, full-onion data frames reuse cached route state and no longer pay the legacy per-frame route-setup cost, so routed header-only and routed full-onion are expected to be much closer than the legacy non-routed modes."
+		adjustmentNote = "Quick uses fixed 256KB application writes and compares direct libp2p against header-only mixnet with session routing enabled and full-onion mixnet on the legacy per-frame path at 2 hops and 1 circuit. The tables below show exact latency and throughput values plus percent deltas."
 	}
 	data := reportData{
 		Profile:     opts.Profile,
@@ -471,18 +471,18 @@ func buildComparisonTables(opts suiteOptions, lookup map[string][]summaryRecord)
 		buildLatencyComparisonTable(
 			lookup,
 			"Quick routed stream latency comparison: 2 hops, 1 circuit",
-			"Exact mean total latency and percent overhead versus direct and versus the other mixnet mode.",
+			"Exact mean total latency and percent overhead for header-only routed versus direct and full-onion legacy.",
 			"focused-direct-baseline",
 			"focused-header-only-c1-routed",
-			"focused-full-c1-routed",
+			"focused-full-c1-legacy",
 		),
 		buildThroughputComparisonTable(
 			lookup,
 			"Quick routed stream throughput comparison: 2 hops, 1 circuit",
-			"Exact mean throughput and percent delta versus direct plus full-versus-header delta.",
+			"Exact mean throughput and percent delta for header-only routed versus direct and full-onion legacy.",
 			"focused-direct-baseline",
 			"focused-header-only-c1-routed",
-			"focused-full-c1-routed",
+			"focused-full-c1-legacy",
 		),
 	}
 }

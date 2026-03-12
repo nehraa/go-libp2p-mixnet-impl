@@ -494,7 +494,7 @@ func (m *Mixnet) SendWithSession(ctx context.Context, dest peer.ID, data []byte,
 	if len(circuits) == 0 {
 		return ErrCircuitFailed(fmt.Sprintf("no active circuits to %s", dest))
 	}
-	if m.config != nil && m.config.EnableSessionRouting {
+	if sessionRoutingEnabled(m.config) {
 		return m.sendWithSessionRouted(ctx, dest, data, sessionID, circuits)
 	}
 
@@ -638,6 +638,9 @@ func (m *Mixnet) sendWithSessionRouted(ctx context.Context, dest peer.ID, data [
 	baseID, seq, hasSeq := parseStreamWriteSequence(sessionID)
 	if !hasSeq {
 		baseID = sessionID
+		seq = m.nextRouteSequence(baseID)
+		hasSeq = true
+		sessionID = routedSessionID(baseID, hasSeq, seq)
 	}
 	streamKey, _, err := m.ensureStreamSession(baseID)
 	if err != nil {
@@ -716,7 +719,7 @@ func (m *Mixnet) sendWithSessionRouted(ctx context.Context, dest peer.ID, data [
 		if ctx.Err() != nil || !IsRetryable(err) {
 			return err
 		}
-		m.clearRouteSetup(baseID)
+		m.resetRouteSetup(baseID)
 		if recoverErr := m.RecoverFromFailure(ctx, dest); recoverErr != nil {
 			return ErrCircuitFailed("failed to recover after setup failure").WithCause(errors.Join(err, recoverErr))
 		}
@@ -726,7 +729,7 @@ func (m *Mixnet) sendWithSessionRouted(ctx context.Context, dest peer.ID, data [
 		if ctx.Err() != nil || !IsRetryable(err) {
 			return err
 		}
-		m.clearRouteSetup(baseID)
+		m.resetRouteSetup(baseID)
 		if recoverErr := m.RecoverFromFailure(ctx, dest); recoverErr != nil {
 			return ErrCircuitFailed("failed to recover after send failure").WithCause(errors.Join(err, recoverErr))
 		}
@@ -915,6 +918,36 @@ func (m *Mixnet) touchRouteSessionState(baseID string) *senderSessionRouteState 
 	return state
 }
 
+func (m *Mixnet) nextRouteSequence(baseID string) uint64 {
+	timeout := 30 * time.Second
+	if m.config != nil && m.config.SessionRouteIdleTimeout > 0 {
+		timeout = m.config.SessionRouteIdleTimeout
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.sessionRoutes == nil {
+		m.sessionRoutes = make(map[string]*senderSessionRouteState)
+	}
+	state := m.sessionRoutes[baseID]
+	if state == nil {
+		state = &senderSessionRouteState{
+			setupByCircuit: make(map[string]struct{}),
+		}
+		m.sessionRoutes[baseID] = state
+	}
+	state.lastUsed = time.Now()
+	if state.timer == nil {
+		state.timer = time.AfterFunc(timeout, func() {
+			m.clearStreamSession(baseID)
+		})
+	} else {
+		state.timer.Reset(timeout)
+	}
+	seq := state.nextSeq
+	state.nextSeq++
+	return seq
+}
+
 func (m *Mixnet) routeSetupComplete(baseID, circuitID string) bool {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -956,6 +989,16 @@ func (m *Mixnet) clearRouteSetup(baseID string) {
 	}
 }
 
+func (m *Mixnet) resetRouteSetup(baseID string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	state := m.sessionRoutes[baseID]
+	if state == nil {
+		return
+	}
+	state.setupByCircuit = make(map[string]struct{})
+}
+
 func (m *Mixnet) clearRouteSetupCircuit(baseID, circuitID string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -987,7 +1030,7 @@ func (m *Mixnet) clearStreamSession(sessionID string) {
 }
 
 func (m *Mixnet) closeSessionRouting(ctx context.Context, dest peer.ID, sessionID string) error {
-	if m == nil || m.config == nil || !m.config.EnableSessionRouting {
+	if m == nil || !sessionRoutingEnabled(m.config) {
 		return nil
 	}
 	baseID := baseSessionID(normalizeSessionID(sessionID))
@@ -2319,12 +2362,12 @@ func (m *Mixnet) reschedulePendingShards(ctx context.Context, dest peer.ID) erro
 		}
 		authKey = &decoded
 	}
-	if pt.SessionRouting && m.config != nil && m.config.EnableSessionRouting {
+	if pt.SessionRouting && sessionRoutingEnabled(m.config) {
 		baseID, seq, hasSeq := parseStreamWriteSequence(pt.SessionID)
 		if !hasSeq {
 			baseID = pt.SessionID
 		}
-		m.clearRouteSetup(baseID)
+		m.resetRouteSetup(baseID)
 		if err := m.sendSessionSetupAcrossCircuits(ctx, dest, baseID, pt.KeyData, circuits); err != nil {
 			return err
 		}

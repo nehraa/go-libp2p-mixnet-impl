@@ -54,13 +54,14 @@ stream writes.
   protocol. Every write carries routing/setup information again.
 - **Routed mode**: `EnableSessionRouting=true` sends one session-setup frame
   per `(baseSessionID, circuitID)` and then smaller session-data frames for
-  later writes on that base session.
+  later header-only writes on that base session.
 - **Idle cleanup**: `SessionRouteIdleTimeout` controls when sender, relays, and
   destination discard cached routed-session state if the session goes idle.
 
 This distinction matters most for `MixStream.Write` and repeated
 `SendWithSession` calls that reuse the same base session ID. The public API did
 not move; the wire behavior under it became more efficient when the flag is on.
+Full onion continues to use the legacy per-frame onion path.
 
 ### Header-only relay behavior
 
@@ -159,8 +160,8 @@ if _, err := stream.Write([]byte("Hello over MixStream")); err != nil {
 
 `OpenStream` is the normal application entry point for long-lived writes. In
 legacy mode each `Write` still takes the old per-write route/setup path. In
-routed mode the first write establishes session-routing state and later writes
-reuse it.
+routed header-only mode the first write establishes session-routing state and
+later writes reuse it. Full onion remains on the legacy per-frame path.
 
 ### Reusing a session without `OpenStream`
 
@@ -175,7 +176,8 @@ if err := m.SendWithSession(ctx, destinationPeerID, chunk2, sessionID); err != n
 ```
 
 `SendWithSession` benefits from session-routing too when the caller reuses the
-same base session ID.
+same base session ID on header-only mode. Full onion keeps the legacy per-send
+path.
 
 ### As a Destination (Receiver)
 
@@ -217,7 +219,7 @@ The `MixnetConfig` allows fine-tuning the protocol:
 | `PayloadPaddingBuckets` | `nil` | Bucket sizes used by bucket padding |
 | `EnableAuthTag` | `false` | Enables per-shard authenticity tags |
 | `AuthTagSize` | `16` | Truncated HMAC tag size when auth tags are enabled |
-| `EnableSessionRouting` | `false` | Opt-in setup-once/data-later wire mode for repeated stream writes and reused sessions |
+| `EnableSessionRouting` | `false` | Opt-in setup-once/data-later wire mode for repeated header-only stream writes and reused sessions |
 | `SessionRouteIdleTimeout` | `30s` | Idle timeout for cached session-routing state |
 | `MaxJitter` | `50` | Adds up to 50 ms of random delay between shard transmissions |
 

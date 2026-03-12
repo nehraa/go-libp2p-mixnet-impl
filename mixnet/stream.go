@@ -147,7 +147,7 @@ func (s *MixStream) Close() error {
 	s.closed = true
 	s.mu.Unlock()
 
-	if s.dest != "" && s.mixnet != nil && s.mixnet.config != nil && s.mixnet.config.EnableSessionRouting {
+	if s.dest != "" && s.mixnet != nil && sessionRoutingEnabled(s.mixnet.config) {
 		_ = s.mixnet.closeSessionRouting(s.ctx, s.dest, s.sessionID)
 	}
 	s.mixnet.clearStreamSession(s.sessionID)

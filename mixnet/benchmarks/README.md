@@ -40,7 +40,7 @@ It compares:
 
 - direct libp2p baseline
 - header-only mixnet with `EnableSessionRouting=true`
-- full onion mixnet with `EnableSessionRouting=true`
+- full onion mixnet on the legacy per-frame path
 
 The default quick sizes are:
 
@@ -53,9 +53,9 @@ The report focuses on:
 - one latency table with exact mean ms plus percent overhead
 - one throughput table with exact MiB/s plus throughput delta vs direct
 
-Because routed full-onion reuses cached route state on data frames, its quick
-profile numbers are expected to sit much closer to routed header-only than the
-older legacy per-frame full-onion path did.
+Session-routing is benchmarked only for header-only in quick. Full onion stays
+on the legacy per-hop decrypt path so the comparison reflects the intended
+behavior difference.
 
 ## Raw data and outlier rule
 

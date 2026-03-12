@@ -1284,6 +1284,7 @@ func TestProductionSanity(t *testing.T) {
 			routedCfg := cloneConfig(cfg)
 			routedCfg.EnableSessionRouting = true
 			routedCfg.SessionRouteIdleTimeout = 2 * time.Second
+			routedCfg.EncryptionMode = EncryptionModeHeaderOnly
 
 			originRouted, destRouted, _, routedCleanup := setupMixnetNetwork(t, ctx, routedCfg, 9)
 			defer routedCleanup()
@@ -1383,6 +1384,7 @@ func TestProductionSanity(t *testing.T) {
 			routedCfg := cloneConfig(cfg)
 			routedCfg.EnableSessionRouting = true
 			routedCfg.SessionRouteIdleTimeout = 2 * time.Second
+			routedCfg.EncryptionMode = EncryptionModeHeaderOnly
 
 			originRouted, destRouted, _, routedCleanup := setupMixnetNetwork(t, ctx, routedCfg, 9)
 			defer routedCleanup()

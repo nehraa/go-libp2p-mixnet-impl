@@ -495,7 +495,7 @@ func buildScenarios(opts suiteOptions) []scenario {
 		if opts.Profile == "quick" {
 			out = append(out,
 				newRoutedStreamMixnetScenario("focused-header-only-c1-routed", groupFocusedOnion, "Header-only routed stream 2 hops 1 circuit", "header-only", 2, 1, false),
-				newRoutedStreamMixnetScenario("focused-full-c1-routed", groupFocusedOnion, "Full onion routed stream 2 hops 1 circuit", "full", 2, 1, false),
+				newStreamMixnetScenario("focused-full-c1-legacy", groupFocusedOnion, "Full onion legacy stream 2 hops 1 circuit", "full", 2, 1, false),
 			)
 		} else {
 			out = append(out,
