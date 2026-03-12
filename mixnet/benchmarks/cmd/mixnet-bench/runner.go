@@ -696,12 +696,6 @@ func newMixnetScenario(id, category, label, mode string, hops, circuits int, use
 	}
 }
 
-func newRoutedMixnetScenario(id, category, label, mode string, hops, circuits int, useCES bool) scenario {
-	sc := newMixnetScenario(id, category, label, mode, hops, circuits, useCES)
-	sc.EnableSessionRouting = true
-	return sc
-}
-
 func newDirectScenario(id, category, label string, streamWrites bool) scenario {
 	return scenario{
 		ID:           id,
