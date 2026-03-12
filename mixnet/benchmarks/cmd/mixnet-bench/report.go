@@ -387,25 +387,6 @@ func relativeToScenarioSeries(name, color string, lookup map[string][]summaryRec
 	}
 }
 
-func retainedThroughputSeries(name, color string, lookup map[string][]summaryRecord, scenarioID, baselineScenarioID string) chartSeries {
-	baselineBySize := make(map[int]float64)
-	for _, point := range lookup[baselineScenarioID] {
-		baselineBySize[point.SizeBytes] = point.ThroughputMeanMBps
-	}
-	return chartSeries{
-		Name:   name,
-		Color:  color,
-		Points: sortedPointsByID(lookup, scenarioID),
-		Value: func(summary summaryRecord) float64 {
-			baseline := baselineBySize[summary.SizeBytes]
-			if baseline <= 0 {
-				return 0
-			}
-			return percentOf(summary.ThroughputMeanMBps, baseline)
-		},
-	}
-}
-
 func relativeSeriesFromPoints(baselineBySize map[int]float64, items ...chartSeries) []chartSeries {
 	out := make([]chartSeries, 0, len(items))
 	for _, item := range items {
