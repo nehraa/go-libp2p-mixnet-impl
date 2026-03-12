@@ -234,9 +234,9 @@ type streamWorkloadPreset struct {
 }
 
 var quickMediaProfiles = []streamWorkloadPreset{
-	{ID: "audio-low", Kind: "audio", Quality: "low", Label: "Audio low", BitrateKbps: 96, SegmentMS: 200, DurationSec: 60},
-	{ID: "audio-medium", Kind: "audio", Quality: "medium", Label: "Audio medium", BitrateKbps: 192, SegmentMS: 200, DurationSec: 60},
-	{ID: "audio-high", Kind: "audio", Quality: "high", Label: "Audio high", BitrateKbps: 320, SegmentMS: 200, DurationSec: 60},
+	{ID: "audio-low", Kind: "audio", Quality: "low", Label: "Audio low", BitrateKbps: 96, SegmentMS: 1000, DurationSec: 30},
+	{ID: "audio-medium", Kind: "audio", Quality: "medium", Label: "Audio medium", BitrateKbps: 192, SegmentMS: 1000, DurationSec: 30},
+	{ID: "audio-high", Kind: "audio", Quality: "high", Label: "Audio high", BitrateKbps: 320, SegmentMS: 1000, DurationSec: 30},
 	{ID: "video-480p", Kind: "video", Quality: "480p", Label: "Video 480p", BitrateKbps: 1500, SegmentMS: 1000, DurationSec: 60},
 	{ID: "video-720p", Kind: "video", Quality: "720p", Label: "Video 720p", BitrateKbps: 4000, SegmentMS: 1000, DurationSec: 60},
 	{ID: "video-1080p", Kind: "video", Quality: "1080p", Label: "Video 1080p", BitrateKbps: 8000, SegmentMS: 1000, DurationSec: 60},
