@@ -1290,26 +1290,27 @@ func encodeSessionSetupFramePayload(baseSessionID string, mode byte, encryptedHe
 	return buf, nil
 }
 
-func decodeSessionCloseFramePayload(data []byte) (string, error) {
+func decodeSessionPayloadBaseID(data []byte, requireLength bool) (string, error) {
 	if len(data) < 1 {
 		return "", fmt.Errorf("session payload too short")
 	}
 	baseLen := int(data[0])
-	if len(data) < 1+baseLen+4 {
+	minLen := 1 + baseLen
+	if requireLength {
+		minLen += 4
+	}
+	if len(data) < minLen {
 		return "", fmt.Errorf("session payload truncated")
 	}
 	return string(data[1 : 1+baseLen]), nil
 }
 
+func decodeSessionCloseFramePayload(data []byte) (string, error) {
+	return decodeSessionPayloadBaseID(data, true)
+}
+
 func sessionFrameBaseID(data []byte) (string, error) {
-	if len(data) < 1 {
-		return "", fmt.Errorf("session payload too short")
-	}
-	baseLen := int(data[0])
-	if len(data) < 1+baseLen {
-		return "", fmt.Errorf("session payload truncated")
-	}
-	return string(data[1 : 1+baseLen]), nil
+	return decodeSessionPayloadBaseID(data, false)
 }
 
 func waitForCloseAck(stream network.Stream) error {
