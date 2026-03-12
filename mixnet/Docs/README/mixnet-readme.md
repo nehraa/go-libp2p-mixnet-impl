@@ -47,7 +47,7 @@ message:
 
 ### Session-routing mode
 
-This branch adds an opt-in setup-once/data-later mode for repeated sends and
+Lib-Mix includes an opt-in setup-once/data-later mode for repeated sends and
 stream writes.
 
 - **Legacy mode**: `EnableSessionRouting=false` keeps the existing wire
