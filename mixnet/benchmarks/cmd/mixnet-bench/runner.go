@@ -97,7 +97,14 @@ type scenario struct {
 	Label                  string
 	Mode                   string
 	Measurement            string
+	StreamProfile          string
+	StreamKind             string
+	StreamQuality          string
 	StreamWrites           bool
+	StreamBitrateKbps      int
+	StreamSegmentMS        int
+	StreamDurationSec      int
+	StreamWriteSizeBytes   int
 	EnableSessionRouting   bool
 	HopCount               int
 	CircuitCount           int
@@ -118,6 +125,7 @@ type scenario struct {
 	EnableAuthTag          bool
 	AuthTagSize            int
 	MaxJitter              int
+	Sizes                  []int
 }
 
 type runRecord struct {
@@ -126,7 +134,14 @@ type runRecord struct {
 	Label                   string    `json:"label"`
 	Measurement             string    `json:"measurement"`
 	Mode                    string    `json:"mode"`
+	StreamProfile           string    `json:"stream_profile"`
+	StreamKind              string    `json:"stream_kind"`
+	StreamQuality           string    `json:"stream_quality"`
 	StreamWrites            bool      `json:"stream_writes"`
+	StreamBitrateKbps       int       `json:"stream_bitrate_kbps"`
+	StreamSegmentMS         int       `json:"stream_segment_ms"`
+	StreamDurationSec       int       `json:"stream_duration_sec"`
+	StreamWriteSizeBytes    int       `json:"stream_write_size_bytes"`
 	EnableSessionRouting    bool      `json:"enable_session_routing"`
 	SizeBytes               int       `json:"size_bytes"`
 	SizeLabel               string    `json:"size_label"`
@@ -163,7 +178,14 @@ type summaryRecord struct {
 	Label                   string  `json:"label"`
 	Measurement             string  `json:"measurement"`
 	Mode                    string  `json:"mode"`
+	StreamProfile           string  `json:"stream_profile"`
+	StreamKind              string  `json:"stream_kind"`
+	StreamQuality           string  `json:"stream_quality"`
 	StreamWrites            bool    `json:"stream_writes"`
+	StreamBitrateKbps       int     `json:"stream_bitrate_kbps"`
+	StreamSegmentMS         int     `json:"stream_segment_ms"`
+	StreamDurationSec       int     `json:"stream_duration_sec"`
+	StreamWriteSizeBytes    int     `json:"stream_write_size_bytes"`
 	EnableSessionRouting    bool    `json:"enable_session_routing"`
 	SizeBytes               int     `json:"size_bytes"`
 	SizeLabel               string  `json:"size_label"`
@@ -199,6 +221,25 @@ type summaryRecord struct {
 	PerHopStdDevMS          float64 `json:"per_hop_stddev_ms"`
 	ThroughputMeanMBps      float64 `json:"throughput_mean_mib_per_s"`
 	ThroughputStdDevMBps    float64 `json:"throughput_stddev_mib_per_s"`
+}
+
+type streamWorkloadPreset struct {
+	ID          string `json:"id"`
+	Kind        string `json:"kind"`
+	Quality     string `json:"quality"`
+	Label       string `json:"label"`
+	BitrateKbps int    `json:"bitrate_kbps"`
+	SegmentMS   int    `json:"segment_ms"`
+	DurationSec int    `json:"duration_sec"`
+}
+
+var quickMediaProfiles = []streamWorkloadPreset{
+	{ID: "audio-low", Kind: "audio", Quality: "low", Label: "Audio low", BitrateKbps: 96, SegmentMS: 200, DurationSec: 60},
+	{ID: "audio-medium", Kind: "audio", Quality: "medium", Label: "Audio medium", BitrateKbps: 192, SegmentMS: 200, DurationSec: 60},
+	{ID: "audio-high", Kind: "audio", Quality: "high", Label: "Audio high", BitrateKbps: 320, SegmentMS: 200, DurationSec: 60},
+	{ID: "video-480p", Kind: "video", Quality: "480p", Label: "Video 480p", BitrateKbps: 1500, SegmentMS: 1000, DurationSec: 60},
+	{ID: "video-720p", Kind: "video", Quality: "720p", Label: "Video 720p", BitrateKbps: 4000, SegmentMS: 1000, DurationSec: 60},
+	{ID: "video-1080p", Kind: "video", Quality: "1080p", Label: "Video 1080p", BitrateKbps: 8000, SegmentMS: 1000, DurationSec: 60},
 }
 
 type bestRecord struct {
@@ -321,14 +362,16 @@ func runSuite(opts suiteOptions) error {
 		opts.Profile, len(scenarios), len(opts.Sizes), opts.runsSummary(), opts.OutputDir)
 
 	totalWork := 0
-	for _, size := range opts.Sizes {
-		totalWork += len(scenarios) * opts.runsForSize(size)
+	for _, sc := range scenarios {
+		for _, size := range scenarioSizes(opts, sc) {
+			totalWork += opts.runsForSize(size)
+		}
 	}
 	runRecords := make([]*runRecord, 0, totalWork)
 	workIndex := 0
 
 	for _, sc := range scenarios {
-		for _, size := range opts.Sizes {
+		for _, size := range scenarioSizes(opts, sc) {
 			runs := opts.runsForSize(size)
 			for runIdx := 1; runIdx <= runs; runIdx++ {
 				workIndex++
@@ -367,6 +410,13 @@ func runSuite(opts suiteOptions) error {
 
 	fmt.Printf("mixnet-bench: complete. report=%s\n", filepath.Join(opts.OutputDir, "report.html"))
 	return nil
+}
+
+func scenarioSizes(opts suiteOptions, sc scenario) []int {
+	if len(sc.Sizes) > 0 {
+		return sc.Sizes
+	}
+	return opts.Sizes
 }
 
 func releaseBenchmarkMemory() {
@@ -497,6 +547,9 @@ func buildScenarios(opts suiteOptions) []scenario {
 				newRoutedStreamMixnetScenario("focused-header-only-c1-routed", groupFocusedOnion, "Header-only routed stream 2 hops 1 circuit", "header-only", 2, 1, false),
 				newStreamMixnetScenario("focused-full-c1-legacy", groupFocusedOnion, "Full onion legacy stream 2 hops 1 circuit", "full", 2, 1, false),
 			)
+			for _, profile := range quickMediaProfiles {
+				out = append(out, newQuickMediaScenarios(groupFocusedOnion, profile)...)
+			}
 		} else {
 			out = append(out,
 				scenario{ID: "focused-local-c1", Category: groupFocusedOnion, Label: "Local session 1 circuit", Mode: "local", Measurement: measurementLocal, HopCount: 2, CircuitCount: 1},
@@ -518,6 +571,93 @@ func buildScenarios(opts suiteOptions) []scenario {
 	}
 
 	return out
+}
+
+func mediaPayloadSizeBytes(profile streamWorkloadPreset) int {
+	bytesPerSecond := float64(profile.BitrateKbps*1000) / 8.0
+	return maxInt(1, int(math.Round(bytesPerSecond*float64(profile.DurationSec))))
+}
+
+func mediaWriteSizeBytes(profile streamWorkloadPreset) int {
+	bytesPerSecond := float64(profile.BitrateKbps*1000) / 8.0
+	return maxInt(1, int(math.Round(bytesPerSecond*float64(profile.SegmentMS)/1000.0)))
+}
+
+func quickMediaScenarioID(profile streamWorkloadPreset, variant string) string {
+	return fmt.Sprintf("focused-%s-%s", profile.ID, variant)
+}
+
+func newQuickMediaScenarios(category string, profile streamWorkloadPreset) []scenario {
+	sizeBytes := mediaPayloadSizeBytes(profile)
+	writeSize := mediaWriteSizeBytes(profile)
+	baseLabel := fmt.Sprintf("%s stream %s", profile.Label, formatBytes(sizeBytes))
+	base := scenario{
+		Category:             category,
+		StreamProfile:        profile.ID,
+		StreamKind:           profile.Kind,
+		StreamQuality:        profile.Quality,
+		StreamWrites:         true,
+		StreamBitrateKbps:    profile.BitrateKbps,
+		StreamSegmentMS:      profile.SegmentMS,
+		StreamDurationSec:    profile.DurationSec,
+		StreamWriteSizeBytes: writeSize,
+		Sizes:                []int{sizeBytes},
+	}
+	return []scenario{
+		{
+			ID:                   quickMediaScenarioID(profile, "direct"),
+			Label:                fmt.Sprintf("Direct %s", baseLabel),
+			Mode:                 "direct",
+			Measurement:          measurementDirect,
+			Category:             base.Category,
+			StreamProfile:        base.StreamProfile,
+			StreamKind:           base.StreamKind,
+			StreamQuality:        base.StreamQuality,
+			StreamWrites:         base.StreamWrites,
+			StreamBitrateKbps:    base.StreamBitrateKbps,
+			StreamSegmentMS:      base.StreamSegmentMS,
+			StreamDurationSec:    base.StreamDurationSec,
+			StreamWriteSizeBytes: base.StreamWriteSizeBytes,
+			Sizes:                append([]int(nil), base.Sizes...),
+		},
+		{
+			ID:                   quickMediaScenarioID(profile, "header-routed"),
+			Label:                fmt.Sprintf("Header-only routed %s", baseLabel),
+			Mode:                 "header-only",
+			Measurement:          measurementMixnet,
+			Category:             base.Category,
+			StreamProfile:        base.StreamProfile,
+			StreamKind:           base.StreamKind,
+			StreamQuality:        base.StreamQuality,
+			StreamWrites:         base.StreamWrites,
+			StreamBitrateKbps:    base.StreamBitrateKbps,
+			StreamSegmentMS:      base.StreamSegmentMS,
+			StreamDurationSec:    base.StreamDurationSec,
+			StreamWriteSizeBytes: base.StreamWriteSizeBytes,
+			EnableSessionRouting: true,
+			HopCount:             2,
+			CircuitCount:         1,
+			Sizes:                append([]int(nil), base.Sizes...),
+		},
+		{
+			ID:                   quickMediaScenarioID(profile, "full-legacy"),
+			Label:                fmt.Sprintf("Full onion legacy %s", baseLabel),
+			Mode:                 "full",
+			Measurement:          measurementMixnet,
+			Category:             base.Category,
+			StreamProfile:        base.StreamProfile,
+			StreamKind:           base.StreamKind,
+			StreamQuality:        base.StreamQuality,
+			StreamWrites:         base.StreamWrites,
+			StreamBitrateKbps:    base.StreamBitrateKbps,
+			StreamSegmentMS:      base.StreamSegmentMS,
+			StreamDurationSec:    base.StreamDurationSec,
+			StreamWriteSizeBytes: base.StreamWriteSizeBytes,
+			HopCount:             2,
+			CircuitCount:         1,
+			Sizes:                append([]int(nil), base.Sizes...),
+		},
+	}
 }
 
 func newMixnetScenario(id, category, label, mode string, hops, circuits int, useCES bool) scenario {
@@ -591,7 +731,14 @@ func executeScenario(opts suiteOptions, sc scenario, size int, runIdx int) (*run
 		Label:                   sc.Label,
 		Measurement:             sc.Measurement,
 		Mode:                    sc.Mode,
+		StreamProfile:           sc.StreamProfile,
+		StreamKind:              sc.StreamKind,
+		StreamQuality:           sc.StreamQuality,
 		StreamWrites:            sc.StreamWrites,
+		StreamBitrateKbps:       sc.StreamBitrateKbps,
+		StreamSegmentMS:         sc.StreamSegmentMS,
+		StreamDurationSec:       sc.StreamDurationSec,
+		StreamWriteSizeBytes:    sc.StreamWriteSizeBytes,
 		EnableSessionRouting:    sc.EnableSessionRouting,
 		SizeBytes:               size,
 		SizeLabel:               formatBytes(size),
@@ -1191,6 +1338,9 @@ func benchmarkIOChunkSize(totalBytes int) int {
 }
 
 func transferChunkSize(sc scenario, totalBytes int) int {
+	if sc.StreamWriteSizeBytes > 0 {
+		return sc.StreamWriteSizeBytes
+	}
 	if sc.StreamWrites {
 		return benchmarkChunkSize
 	}
@@ -1569,7 +1719,14 @@ func summarizeRuns(records []*runRecord) ([]summaryRecord, error) {
 			Label:                   base.Label,
 			Measurement:             base.Measurement,
 			Mode:                    base.Mode,
+			StreamProfile:           base.StreamProfile,
+			StreamKind:              base.StreamKind,
+			StreamQuality:           base.StreamQuality,
 			StreamWrites:            base.StreamWrites,
+			StreamBitrateKbps:       base.StreamBitrateKbps,
+			StreamSegmentMS:         base.StreamSegmentMS,
+			StreamDurationSec:       base.StreamDurationSec,
+			StreamWriteSizeBytes:    base.StreamWriteSizeBytes,
 			EnableSessionRouting:    base.EnableSessionRouting,
 			SizeBytes:               base.SizeBytes,
 			SizeLabel:               base.SizeLabel,
@@ -1778,13 +1935,14 @@ func writeRawRecords(outputDir string, records []*runRecord) error {
 	defer csvFile.Close()
 	writer := csv.NewWriter(csvFile)
 	defer writer.Flush()
-	header := []string{"scenario_id", "category", "label", "measurement", "mode", "stream_writes", "enable_session_routing", "size_bytes", "size_label", "run_index", "timestamp_utc", "hop_count", "circuit_count", "use_ces_pipeline", "use_cse", "use_compression_only", "compression", "erasure_threshold", "erasure_threshold_percent", "selection_mode", "payload_padding_strategy", "header_padding_enabled", "enable_auth_tag", "max_jitter_ms", "connect_ms", "key_exchange_ms", "transfer_ms", "pipeline_process_ms", "pipeline_reconstruct_ms", "total_ms", "per_hop_ms", "throughput_mib_per_s", "excluded"}
+	header := []string{"scenario_id", "category", "label", "measurement", "mode", "stream_profile", "stream_kind", "stream_quality", "stream_writes", "stream_bitrate_kbps", "stream_segment_ms", "stream_duration_sec", "stream_write_size_bytes", "enable_session_routing", "size_bytes", "size_label", "run_index", "timestamp_utc", "hop_count", "circuit_count", "use_ces_pipeline", "use_cse", "use_compression_only", "compression", "erasure_threshold", "erasure_threshold_percent", "selection_mode", "payload_padding_strategy", "header_padding_enabled", "enable_auth_tag", "max_jitter_ms", "connect_ms", "key_exchange_ms", "transfer_ms", "pipeline_process_ms", "pipeline_reconstruct_ms", "total_ms", "per_hop_ms", "throughput_mib_per_s", "excluded"}
 	if err := writer.Write(header); err != nil {
 		return err
 	}
 	for _, rec := range records {
 		row := []string{
-			rec.ScenarioID, rec.Category, rec.Label, rec.Measurement, rec.Mode, strconv.FormatBool(rec.StreamWrites), strconv.FormatBool(rec.EnableSessionRouting),
+			rec.ScenarioID, rec.Category, rec.Label, rec.Measurement, rec.Mode, rec.StreamProfile, rec.StreamKind, rec.StreamQuality, strconv.FormatBool(rec.StreamWrites),
+			strconv.Itoa(rec.StreamBitrateKbps), strconv.Itoa(rec.StreamSegmentMS), strconv.Itoa(rec.StreamDurationSec), strconv.Itoa(rec.StreamWriteSizeBytes), strconv.FormatBool(rec.EnableSessionRouting),
 			strconv.Itoa(rec.SizeBytes), rec.SizeLabel, strconv.Itoa(rec.RunIndex), rec.TimestampUTC.Format(time.RFC3339),
 			strconv.Itoa(rec.HopCount), strconv.Itoa(rec.CircuitCount), strconv.FormatBool(rec.UseCESPipeline), strconv.FormatBool(rec.UseCSE), strconv.FormatBool(rec.UseCompressionOnly),
 			rec.Compression, strconv.Itoa(rec.ErasureThreshold), fmt.Sprintf("%.2f", rec.ErasureThresholdPercent),
@@ -1817,13 +1975,14 @@ func writeSummaryRecords(outputDir string, summaries []summaryRecord) error {
 	defer file.Close()
 	writer := csv.NewWriter(file)
 	defer writer.Flush()
-	header := []string{"scenario_id", "category", "label", "measurement", "mode", "stream_writes", "enable_session_routing", "size_bytes", "size_label", "hop_count", "circuit_count", "use_ces_pipeline", "use_cse", "use_compression_only", "compression", "erasure_threshold", "erasure_threshold_percent", "selection_mode", "payload_padding_strategy", "header_padding_enabled", "enable_auth_tag", "max_jitter_ms", "total_runs", "kept_runs", "excluded_run_index", "connect_mean_ms", "connect_stddev_ms", "key_exchange_mean_ms", "key_exchange_stddev_ms", "transfer_mean_ms", "transfer_stddev_ms", "pipeline_process_mean_ms", "pipeline_process_stddev_ms", "pipeline_reconstruct_mean_ms", "pipeline_reconstruct_stddev_ms", "total_mean_ms", "total_stddev_ms", "per_hop_mean_ms", "per_hop_stddev_ms", "throughput_mean_mib_per_s", "throughput_stddev_mib_per_s"}
+	header := []string{"scenario_id", "category", "label", "measurement", "mode", "stream_profile", "stream_kind", "stream_quality", "stream_writes", "stream_bitrate_kbps", "stream_segment_ms", "stream_duration_sec", "stream_write_size_bytes", "enable_session_routing", "size_bytes", "size_label", "hop_count", "circuit_count", "use_ces_pipeline", "use_cse", "use_compression_only", "compression", "erasure_threshold", "erasure_threshold_percent", "selection_mode", "payload_padding_strategy", "header_padding_enabled", "enable_auth_tag", "max_jitter_ms", "total_runs", "kept_runs", "excluded_run_index", "connect_mean_ms", "connect_stddev_ms", "key_exchange_mean_ms", "key_exchange_stddev_ms", "transfer_mean_ms", "transfer_stddev_ms", "pipeline_process_mean_ms", "pipeline_process_stddev_ms", "pipeline_reconstruct_mean_ms", "pipeline_reconstruct_stddev_ms", "total_mean_ms", "total_stddev_ms", "per_hop_mean_ms", "per_hop_stddev_ms", "throughput_mean_mib_per_s", "throughput_stddev_mib_per_s"}
 	if err := writer.Write(header); err != nil {
 		return err
 	}
 	for _, s := range summaries {
 		row := []string{
-			s.ScenarioID, s.Category, s.Label, s.Measurement, s.Mode, strconv.FormatBool(s.StreamWrites), strconv.FormatBool(s.EnableSessionRouting),
+			s.ScenarioID, s.Category, s.Label, s.Measurement, s.Mode, s.StreamProfile, s.StreamKind, s.StreamQuality, strconv.FormatBool(s.StreamWrites),
+			strconv.Itoa(s.StreamBitrateKbps), strconv.Itoa(s.StreamSegmentMS), strconv.Itoa(s.StreamDurationSec), strconv.Itoa(s.StreamWriteSizeBytes), strconv.FormatBool(s.EnableSessionRouting),
 			strconv.Itoa(s.SizeBytes), s.SizeLabel, strconv.Itoa(s.HopCount), strconv.Itoa(s.CircuitCount),
 			strconv.FormatBool(s.UseCESPipeline), strconv.FormatBool(s.UseCSE), strconv.FormatBool(s.UseCompressionOnly), s.Compression, strconv.Itoa(s.ErasureThreshold), fmt.Sprintf("%.2f", s.ErasureThresholdPercent),
 			s.SelectionMode, s.PayloadPaddingStrategy, strconv.FormatBool(s.HeaderPaddingEnabled), strconv.FormatBool(s.EnableAuthTag), strconv.Itoa(s.MaxJitterMS),

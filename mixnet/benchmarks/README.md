@@ -52,10 +52,25 @@ The report focuses on:
 - one throughput graph
 - one latency table with exact mean ms plus percent overhead
 - one throughput table with exact MiB/s plus throughput delta vs direct
+- audio preset latency and throughput tables
+- video preset latency and throughput tables
 
 Session-routing is benchmarked only for header-only in quick. Full onion stays
 on the legacy per-hop decrypt path so the comparison reflects the intended
 behavior difference.
+
+Quick also includes media-style stream presets. These do not pace traffic in
+real time; instead they shape each run using a bitrate-derived write size and a
+fixed 60 second virtual stream payload:
+
+| Kind | Quality | Bitrate | Segment | Derived payload |
+| --- | --- | --- | --- | --- |
+| audio | low | 96 kbps | 200 ms | about 720 KB |
+| audio | medium | 192 kbps | 200 ms | about 1.4 MB |
+| audio | high | 320 kbps | 200 ms | about 2.3 MB |
+| video | 480p | 1500 kbps | 1000 ms | about 11.2 MB |
+| video | 720p | 4000 kbps | 1000 ms | about 28.6 MB |
+| video | 1080p | 8000 kbps | 1000 ms | about 57.2 MB |
 
 ## Raw data and outlier rule
 

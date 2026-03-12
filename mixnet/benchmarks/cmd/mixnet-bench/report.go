@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -94,7 +95,7 @@ func writeReport(outputDir string, opts suiteOptions, summaries []summaryRecord,
 	if opts.Profile == "full" {
 		adjustmentNote = "Full runs do not generate graphs. Use raw_runs.csv and summary.csv for the full data dump, including CES scenarios."
 	} else if opts.Profile == "quick" {
-		adjustmentNote = "Quick uses fixed 256KB application writes and compares direct libp2p against header-only mixnet with session routing enabled and full-onion mixnet on the legacy per-frame path at 2 hops and 1 circuit. The tables below show exact latency and throughput values plus percent deltas."
+		adjustmentNote = "Quick uses fixed 256KB application writes for the main routed stream sweep and also includes bitrate-shaped audio and video stream presets. The base comparison is direct libp2p against header-only mixnet with session routing enabled and full-onion mixnet on the legacy per-frame path at 2 hops and 1 circuit. Media presets use a fixed virtual stream duration and bitrate-derived write sizes; they are not real-time paced."
 	}
 	data := reportData{
 		Profile:     opts.Profile,
@@ -247,6 +248,14 @@ func sortedPointsByID(lookup map[string][]summaryRecord, id string) []summaryRec
 	points := append([]summaryRecord(nil), lookup[id]...)
 	sort.Slice(points, func(i, j int) bool { return points[i].SizeBytes < points[j].SizeBytes })
 	return points
+}
+
+func singleSummaryByID(lookup map[string][]summaryRecord, id string) (summaryRecord, bool) {
+	points := sortedPointsByID(lookup, id)
+	if len(points) == 0 {
+		return summaryRecord{}, false
+	}
+	return points[0], true
 }
 
 func summaryMapBySize(points []summaryRecord) map[int]summaryRecord {
@@ -467,7 +476,7 @@ func buildComparisonTables(opts suiteOptions, lookup map[string][]summaryRecord)
 	if opts.Profile != "quick" {
 		return nil
 	}
-	return []comparisonTable{
+	tables := []comparisonTable{
 		buildLatencyComparisonTable(
 			lookup,
 			"Quick routed stream latency comparison: 2 hops, 1 circuit",
@@ -484,6 +493,17 @@ func buildComparisonTables(opts suiteOptions, lookup map[string][]summaryRecord)
 			"focused-header-only-c1-routed",
 			"focused-full-c1-legacy",
 		),
+	}
+	tables = append(tables, buildQuickMediaTables(lookup)...)
+	return tables
+}
+
+func buildQuickMediaTables(lookup map[string][]summaryRecord) []comparisonTable {
+	return []comparisonTable{
+		buildMediaLatencyComparisonTable(lookup, "audio"),
+		buildMediaThroughputComparisonTable(lookup, "audio"),
+		buildMediaLatencyComparisonTable(lookup, "video"),
+		buildMediaThroughputComparisonTable(lookup, "video"),
 	}
 }
 
@@ -595,6 +615,128 @@ func buildThroughputComparisonTableFromMaps(title, description string, baseBySiz
 		},
 		Rows: rows,
 	}
+}
+
+func buildMediaLatencyComparisonTable(lookup map[string][]summaryRecord, kind string) comparisonTable {
+	rows := make([][]string, 0)
+	for _, profile := range quickMediaProfiles {
+		if profile.Kind != kind {
+			continue
+		}
+		base, ok := singleSummaryByID(lookup, quickMediaScenarioID(profile, "direct"))
+		if !ok {
+			continue
+		}
+		header, ok := singleSummaryByID(lookup, quickMediaScenarioID(profile, "header-routed"))
+		if !ok {
+			continue
+		}
+		full, ok := singleSummaryByID(lookup, quickMediaScenarioID(profile, "full-legacy"))
+		if !ok {
+			continue
+		}
+		rows = append(rows, []string{
+			profile.Quality,
+			strconv.Itoa(profile.BitrateKbps),
+			strconv.Itoa(base.StreamSegmentMS),
+			formatBytes(base.StreamWriteSizeBytes),
+			base.SizeLabel,
+			fmt.Sprintf("%.3f", base.TotalMeanMS),
+			fmt.Sprintf("%.3f", header.TotalMeanMS),
+			fmt.Sprintf("%.2f%%", percentDelta(header.TotalMeanMS, base.TotalMeanMS)),
+			fmt.Sprintf("%.3f", full.TotalMeanMS),
+			fmt.Sprintf("%.2f%%", percentDelta(full.TotalMeanMS, base.TotalMeanMS)),
+			fmt.Sprintf("%.2f%%", percentDelta(full.TotalMeanMS, header.TotalMeanMS)),
+		})
+	}
+	titleKind := displayKind(kind)
+	return comparisonTable{
+		Title:       fmt.Sprintf("Quick %s stream latency presets", titleKind),
+		Description: fmt.Sprintf("%s stream presets use bitrate-shaped write sizes over a fixed %d second virtual stream.", titleKind, mediaDurationForKind(kind)),
+		Headers: []string{
+			"Quality",
+			"Bitrate kbps",
+			"Segment ms",
+			"Write size",
+			"Payload size",
+			"Direct ms",
+			"Header-only ms",
+			"Header-only overhead vs direct %",
+			"Full onion ms",
+			"Full onion overhead vs direct %",
+			"Full vs header-only %",
+		},
+		Rows: rows,
+	}
+}
+
+func buildMediaThroughputComparisonTable(lookup map[string][]summaryRecord, kind string) comparisonTable {
+	rows := make([][]string, 0)
+	for _, profile := range quickMediaProfiles {
+		if profile.Kind != kind {
+			continue
+		}
+		base, ok := singleSummaryByID(lookup, quickMediaScenarioID(profile, "direct"))
+		if !ok {
+			continue
+		}
+		header, ok := singleSummaryByID(lookup, quickMediaScenarioID(profile, "header-routed"))
+		if !ok {
+			continue
+		}
+		full, ok := singleSummaryByID(lookup, quickMediaScenarioID(profile, "full-legacy"))
+		if !ok {
+			continue
+		}
+		rows = append(rows, []string{
+			profile.Quality,
+			strconv.Itoa(profile.BitrateKbps),
+			strconv.Itoa(base.StreamSegmentMS),
+			formatBytes(base.StreamWriteSizeBytes),
+			base.SizeLabel,
+			fmt.Sprintf("%.3f", base.ThroughputMeanMBps),
+			fmt.Sprintf("%.3f", header.ThroughputMeanMBps),
+			fmt.Sprintf("%.2f%%", percentDelta(header.ThroughputMeanMBps, base.ThroughputMeanMBps)),
+			fmt.Sprintf("%.3f", full.ThroughputMeanMBps),
+			fmt.Sprintf("%.2f%%", percentDelta(full.ThroughputMeanMBps, base.ThroughputMeanMBps)),
+			fmt.Sprintf("%.2f%%", percentDelta(full.ThroughputMeanMBps, header.ThroughputMeanMBps)),
+		})
+	}
+	titleKind := displayKind(kind)
+	return comparisonTable{
+		Title:       fmt.Sprintf("Quick %s stream throughput presets", titleKind),
+		Description: fmt.Sprintf("%s stream presets use bitrate-shaped write sizes over a fixed %d second virtual stream.", titleKind, mediaDurationForKind(kind)),
+		Headers: []string{
+			"Quality",
+			"Bitrate kbps",
+			"Segment ms",
+			"Write size",
+			"Payload size",
+			"Direct MiB/s",
+			"Header-only MiB/s",
+			"Header-only vs direct %",
+			"Full onion MiB/s",
+			"Full onion vs direct %",
+			"Full vs header-only %",
+		},
+		Rows: rows,
+	}
+}
+
+func mediaDurationForKind(kind string) int {
+	for _, profile := range quickMediaProfiles {
+		if profile.Kind == kind {
+			return profile.DurationSec
+		}
+	}
+	return 0
+}
+
+func displayKind(kind string) string {
+	if kind == "" {
+		return ""
+	}
+	return strings.ToUpper(kind[:1]) + kind[1:]
 }
 
 func percentDelta(value, baseline float64) float64 {
