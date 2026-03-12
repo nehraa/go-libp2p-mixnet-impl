@@ -45,7 +45,7 @@ type comparisonTable struct {
 	Rows        [][]string
 }
 
-func writeReport(outputDir string, opts suiteOptions, summaries []summaryRecord, best []bestRecord, proofs []visualProofScenario) error {
+func writeReport(outputDir string, opts suiteOptions, summaries []summaryRecord, best []bestRecord) error {
 	graphDir := filepath.Join(outputDir, "graphs")
 	if err := os.MkdirAll(graphDir, 0o755); err != nil {
 		return err
@@ -95,7 +95,7 @@ func writeReport(outputDir string, opts suiteOptions, summaries []summaryRecord,
 	if opts.Profile == "full" {
 		adjustmentNote = "Full runs do not generate graphs. Use raw_runs.csv and summary.csv for the full data dump, including CES scenarios."
 	} else if opts.Profile == "quick" {
-		adjustmentNote = "Quick uses fixed 256KB application writes for the main routed stream sweep and also includes bitrate-shaped audio and video stream presets. The base comparison is direct libp2p against header-only mixnet with session routing enabled and full-onion mixnet on the legacy per-frame path at 2 hops and 1 circuit. Media presets use a fixed virtual stream duration and bitrate-derived write sizes; they are not real-time paced. After the timed runs finish, quick also generates a separate 64KB live proof capture so the report can show what each hop and the destination actually observed on the wire without contaminating the benchmark timings."
+		adjustmentNote = "Quick uses fixed 256KB application writes for the main routed stream sweep and also includes bitrate-shaped audio and video stream presets. The base comparison is direct libp2p against header-only mixnet with session routing enabled and full-onion mixnet on the legacy per-frame path at 2 hops and 1 circuit. Media presets use a fixed virtual stream duration and bitrate-derived write sizes; they are not real-time paced."
 	}
 	data := reportData{
 		Profile:     opts.Profile,
@@ -104,7 +104,7 @@ func writeReport(outputDir string, opts suiteOptions, summaries []summaryRecord,
 		Graphs:      graphs,
 		Best:        best,
 		Summaries:   compactSummaries(summaries),
-		Comparisons: buildComparisonTables(opts, lookup, proofs),
+		Comparisons: buildComparisonTables(opts, lookup),
 	}
 
 	const reportTemplate = `<!doctype html>
@@ -453,7 +453,7 @@ func compactSummaries(summaries []summaryRecord) []summaryRecord {
 	return out
 }
 
-func buildComparisonTables(opts suiteOptions, lookup map[string][]summaryRecord, proofs []visualProofScenario) []comparisonTable {
+func buildComparisonTables(opts suiteOptions, lookup map[string][]summaryRecord) []comparisonTable {
 	if opts.Profile != "quick" {
 		return nil
 	}
@@ -476,7 +476,6 @@ func buildComparisonTables(opts suiteOptions, lookup map[string][]summaryRecord,
 		),
 	}
 	tables = append(tables, buildQuickMediaTables(lookup)...)
-	tables = append(tables, buildVisualProofTables(proofs)...)
 	return tables
 }
 
@@ -733,60 +732,6 @@ func percentOf(value, baseline float64) float64 {
 		return 0
 	}
 	return (value / baseline) * 100.0
-}
-
-func buildVisualProofTables(proofs []visualProofScenario) []comparisonTable {
-	if len(proofs) == 0 {
-		return nil
-	}
-	tables := make([]comparisonTable, 0, len(proofs))
-	for _, proof := range proofs {
-		rows := make([][]string, 0, len(proof.Events))
-		for _, event := range proof.Events {
-			rows = append(rows, []string{
-				strconv.Itoa(event.Order),
-				event.Role,
-				event.Frame,
-				fallbackString(event.ObservedFrom),
-				fallbackString(event.ObservedTo),
-				truncateCell(event.BaseSessionID, 24),
-				strconv.Itoa(event.PayloadLength),
-				truncateCell(event.WirePreviewHex, 48),
-				truncateCell(event.WirePreviewText, 24),
-				event.KnowsSource,
-				event.KnowsDestination,
-			})
-		}
-		tables = append(tables, comparisonTable{
-			Title:       proof.Title,
-			Description: fmt.Sprintf("Live 64KB proof capture. Path: %s. Payload preview: %q. Full text dump is also written to visual_proof.txt.", renderProofPath(proof.Path), proof.PayloadPreviewText),
-			Headers: []string{
-				"#",
-				"Node",
-				"Frame",
-				"Observed from",
-				"Observed to",
-				"Base session",
-				"Bytes",
-				"Wire hex preview",
-				"Wire text preview",
-				"Knows source",
-				"Knows destination",
-			},
-			Rows: rows,
-		})
-	}
-	return tables
-}
-
-func truncateCell(value string, max int) string {
-	if max <= 0 || len(value) <= max {
-		return fallbackString(value)
-	}
-	if max <= 3 {
-		return value[:max]
-	}
-	return value[:max-3] + "..."
 }
 
 func writeSVGLineChart(path, title, yLabel string, chartData []chartSeries, value func(summaryRecord) float64) error {

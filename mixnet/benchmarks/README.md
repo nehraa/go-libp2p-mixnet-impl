@@ -54,8 +54,6 @@ The report focuses on:
 - one throughput table with exact MiB/s plus throughput delta vs direct
 - audio preset latency and throughput tables
 - video preset latency and throughput tables
-- two live 64KB visual-proof tables that show what each hop and the destination
-  actually saw on the wire
 
 Session-routing is benchmarked only for header-only in quick. Full onion stays
 on the legacy per-hop decrypt path so the comparison reflects the intended
@@ -74,15 +72,16 @@ fixed virtual stream payload:
 | video | 720p | 4000 kbps | 1000 ms | 60 s | about 28.6 MB |
 | video | 1080p | 8000 kbps | 1000 ms | 60 s | about 57.2 MB |
 
-After the timed quick scenarios finish, the runner performs a separate 64KB
-live proof capture for:
+If you enable the optional visual proof output, the runner performs a separate
+64KB live proof capture after the timed quick scenarios finish for:
 
 - header-only mixnet with `EnableSessionRouting=true`
 - full onion mixnet on the legacy path
 
 This proof run is not included in the benchmark timings. It exists only to
 record what each hop, the destination network handler, and the destination
-application actually observed in one real run. The output includes:
+application actually observed in one real run. The output is written as
+separate files:
 
 - `visual_proof.txt`
 - `visual_proof.json`
@@ -91,7 +90,7 @@ application actually observed in one real run. The output includes:
 Disable that extra step with:
 
 ```bash
-go run ./mixnet/benchmarks/cmd/mixnet-bench --profile quick --visual-proof=false
+go run ./mixnet/benchmarks/cmd/mixnet-bench --profile quick --visual-proof
 ```
 
 ## Raw data and outlier rule
@@ -150,13 +149,16 @@ Every run writes a timestamped directory under `mixnet/benchmarks/output/` with:
 - `best_hops_circuits.json`
 - `metadata.json`
 - `report.html`
+- `graphs/*.svg`
+
+When `--visual-proof` is enabled, the run also writes:
+
 - `visual_proof.txt`
 - `visual_proof.json`
-- `graphs/*.svg`
 
 `report.html` links the generated graphs and summarizes the best hop x circuit combinations per size.
 For the quick profile it includes the routed comparison charts and the compact
-latency/throughput tables described above, plus the live visual-proof tables.
+latency/throughput tables described above.
 
 ## Notes
 

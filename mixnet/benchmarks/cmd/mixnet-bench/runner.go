@@ -414,17 +414,16 @@ func runSuite(opts suiteOptions) error {
 		return err
 	}
 
-	var proofs []visualProofScenario
 	if opts.VisualProof && opts.Profile == "quick" {
-		proofs, err = runQuickVisualProof(opts)
-		if err != nil {
-			return err
+		proofs, proofErr := runQuickVisualProof(opts)
+		if proofErr != nil {
+			return proofErr
 		}
 		if err := writeVisualProofFiles(opts.OutputDir, proofs); err != nil {
 			return err
 		}
 	}
-	if err := writeReport(opts.OutputDir, opts, summaries, best, proofs); err != nil {
+	if err := writeReport(opts.OutputDir, opts, summaries, best); err != nil {
 		return err
 	}
 
