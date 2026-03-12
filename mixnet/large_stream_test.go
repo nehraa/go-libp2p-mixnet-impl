@@ -104,14 +104,19 @@ func TestLargeHeaderOnlyStream1MB(t *testing.T) {
 
 func TestMultiWriteStreamAcrossCircuits(t *testing.T) {
 	modes := []struct {
-		name   string
-		mode   EncryptionMode
-		useCSE bool
+		name           string
+		mode           EncryptionMode
+		useCSE         bool
+		sessionRouting bool
 	}{
 		{name: "header-only", mode: EncryptionModeHeaderOnly},
 		{name: "full", mode: EncryptionModeFull},
 		{name: "header-only-cse", mode: EncryptionModeHeaderOnly, useCSE: true},
 		{name: "full-cse", mode: EncryptionModeFull, useCSE: true},
+		{name: "header-only-routed", mode: EncryptionModeHeaderOnly, sessionRouting: true},
+		{name: "full-routed", mode: EncryptionModeFull, sessionRouting: true},
+		{name: "header-only-cse-routed", mode: EncryptionModeHeaderOnly, useCSE: true, sessionRouting: true},
+		{name: "full-cse-routed", mode: EncryptionModeFull, useCSE: true, sessionRouting: true},
 	}
 	circuitCounts := []int{2, 3}
 
@@ -119,19 +124,21 @@ func TestMultiWriteStreamAcrossCircuits(t *testing.T) {
 		for _, circuitCount := range circuitCounts {
 			t.Run(fmt.Sprintf("%s-c%d", tc.name, circuitCount), func(t *testing.T) {
 				cfg := &MixnetConfig{
-					HopCount:               2,
-					CircuitCount:           circuitCount,
-					Compression:            "gzip",
-					UseCESPipeline:         false,
-					UseCSE:                 tc.useCSE,
-					EncryptionMode:         tc.mode,
-					HeaderPaddingEnabled:   false,
-					PayloadPaddingStrategy: PaddingStrategyNone,
-					EnableAuthTag:          false,
-					SelectionMode:          SelectionModeRandom,
-					SamplingSize:           6,
-					RandomnessFactor:       0.3,
-					MaxJitter:              0,
+					HopCount:                2,
+					CircuitCount:            circuitCount,
+					Compression:             "gzip",
+					UseCESPipeline:          false,
+					UseCSE:                  tc.useCSE,
+					EnableSessionRouting:    tc.sessionRouting,
+					SessionRouteIdleTimeout: 2 * time.Second,
+					EncryptionMode:          tc.mode,
+					HeaderPaddingEnabled:    false,
+					PayloadPaddingStrategy:  PaddingStrategyNone,
+					EnableAuthTag:           false,
+					SelectionMode:           SelectionModeRandom,
+					SamplingSize:            6,
+					RandomnessFactor:        0.3,
+					MaxJitter:               0,
 				}
 
 				t.Setenv("MIXNET_MAX_ENCRYPTED_PAYLOAD", "134217728")

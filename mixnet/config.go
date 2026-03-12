@@ -80,6 +80,12 @@ type MixnetConfig struct {
 	EnableAuthTag bool
 	// AuthTagSize is the size of the authenticity tag in bytes (truncated HMAC).
 	AuthTagSize int
+	// EnableSessionRouting enables the opt-in setup-once/data-later session
+	// routing protocol for repeated sends on the same base session.
+	EnableSessionRouting bool
+	// SessionRouteIdleTimeout is the idle timeout for sender, relay, and
+	// destination session-routing state.
+	SessionRouteIdleTimeout time.Duration
 
 	// SelectionMode defines the relay selection strategy.
 	SelectionMode SelectionMode
@@ -128,6 +134,8 @@ func DefaultConfig() *MixnetConfig {
 		PayloadPaddingBuckets:  nil,
 		EnableAuthTag:          false,
 		AuthTagSize:            16,
+		EnableSessionRouting:   false,
+		SessionRouteIdleTimeout: 30 * time.Second,
 	}
 }
 
@@ -151,6 +159,8 @@ func NewMixnetConfig() *MixnetConfig {
 	cfg.PayloadPaddingBuckets = nil
 	cfg.EnableAuthTag = false
 	cfg.AuthTagSize = 0
+	cfg.EnableSessionRouting = false
+	cfg.SessionRouteIdleTimeout = 0
 	cfg.SelectionMode = ""
 	cfg.SamplingSize = 0
 	cfg.RandomnessFactor = 0
@@ -222,6 +232,12 @@ func (c *MixnetConfig) Validate() error {
 	}
 	if c.EncryptionMode != EncryptionModeFull && c.EncryptionMode != EncryptionModeHeaderOnly {
 		return fmt.Errorf("encryption mode must be full or header-only, got %s", c.EncryptionMode)
+	}
+	if c.SessionRouteIdleTimeout == 0 {
+		c.SessionRouteIdleTimeout = 30 * time.Second
+	}
+	if c.SessionRouteIdleTimeout < 0 {
+		return fmt.Errorf("session route idle timeout must be >= 0, got %s", c.SessionRouteIdleTimeout)
 	}
 
 	// Padding strategy validation
@@ -374,6 +390,31 @@ func (c *MixnetConfig) SetPayloadPaddingStrategy(strategy PaddingStrategy) error
 		return ErrConfigImmutable
 	}
 	c.PayloadPaddingStrategy = strategy
+	return nil
+}
+
+// SetEnableSessionRouting enables or disables the setup-once/data-later session routing mode.
+func (c *MixnetConfig) SetEnableSessionRouting(enabled bool) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.locked {
+		return errors.New("configuration is locked")
+	}
+	c.EnableSessionRouting = enabled
+	return nil
+}
+
+// SetSessionRouteIdleTimeout sets the idle timeout for session-routing state.
+func (c *MixnetConfig) SetSessionRouteIdleTimeout(timeout time.Duration) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.locked {
+		return errors.New("configuration is locked")
+	}
+	if timeout < 0 {
+		return fmt.Errorf("session route idle timeout must be >= 0, got %s", timeout)
+	}
+	c.SessionRouteIdleTimeout = timeout
 	return nil
 }
 

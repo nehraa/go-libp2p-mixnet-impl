@@ -1280,6 +1280,55 @@ func TestProductionSanity(t *testing.T) {
 				t.Fatalf("send: %v", err)
 			}
 			waitSend("", []byte("mixnet-send"))
+
+			routedCfg := cloneConfig(cfg)
+			routedCfg.EnableSessionRouting = true
+			routedCfg.SessionRouteIdleTimeout = 2 * time.Second
+
+			originRouted, destRouted, _, routedCleanup := setupMixnetNetwork(t, ctx, routedCfg, 9)
+			defer routedCleanup()
+
+			inboundCh := make(chan *MixStream, 1)
+			inboundErrCh := make(chan error, 1)
+			go func() {
+				s, err := destRouted.AcceptStream(ctx)
+				if err != nil {
+					inboundErrCh <- err
+					return
+				}
+				inboundCh <- s
+			}()
+
+			sessionID := "custom-session-routed"
+			routedPayloads := [][]byte{
+				[]byte("mixnet-send-with-session-routed-1"),
+				[]byte("mixnet-send-with-session-routed-2"),
+			}
+			for _, payload := range routedPayloads {
+				if err := originRouted.SendWithSession(ctx, destRouted.Host().ID(), payload, sessionID); err != nil {
+					t.Fatalf("send with routed session: %v", err)
+				}
+			}
+
+			var inbound *MixStream
+			select {
+			case err := <-inboundErrCh:
+				t.Fatalf("accept routed session stream: %v", err)
+			case inbound = <-inboundCh:
+			case <-time.After(5 * time.Second):
+				t.Fatal("timeout waiting for routed inbound mixstream")
+			}
+			defer inbound.Close()
+
+			if inbound.sessionID != sessionID {
+				t.Fatalf("routed session id mismatch: got %q want %q", inbound.sessionID, sessionID)
+			}
+			for _, want := range routedPayloads {
+				got := readExactlyOneMessage(t, inbound, len(want))
+				if !bytes.Equal(got, want) {
+					t.Fatalf("routed session payload mismatch: got %q want %q", got, want)
+				}
+			}
 		})
 
 		t.Run("open stream and accept stream", func(t *testing.T) {
@@ -1329,6 +1378,65 @@ func TestProductionSanity(t *testing.T) {
 			}
 			if err := destStream.Close(); err != nil {
 				t.Fatalf("close destination stream: %v", err)
+			}
+
+			routedCfg := cloneConfig(cfg)
+			routedCfg.EnableSessionRouting = true
+			routedCfg.SessionRouteIdleTimeout = 2 * time.Second
+
+			originRouted, destRouted, _, routedCleanup := setupMixnetNetwork(t, ctx, routedCfg, 9)
+			defer routedCleanup()
+
+			routedAcceptCh := make(chan *MixStream, 1)
+			routedErrCh := make(chan error, 1)
+			go func() {
+				s, err := destRouted.AcceptStream(ctx)
+				if err != nil {
+					routedErrCh <- err
+					return
+				}
+				routedAcceptCh <- s
+			}()
+
+			originRoutedStream, err := originRouted.OpenStream(ctx, destRouted.Host().ID())
+			if err != nil {
+				t.Fatalf("open routed stream: %v", err)
+			}
+
+			routedPayloads := [][]byte{
+				[]byte("mixnet-routed-stream-payload-1"),
+				[]byte("mixnet-routed-stream-payload-2"),
+				[]byte("mixnet-routed-stream-payload-3"),
+			}
+			for _, payload := range routedPayloads {
+				if _, err := originRoutedStream.Write(payload); err != nil {
+					t.Fatalf("write routed mixstream payload: %v", err)
+				}
+			}
+
+			var routedDestStream *MixStream
+			select {
+			case err := <-routedErrCh:
+				t.Fatalf("accept routed stream: %v", err)
+			case routedDestStream = <-routedAcceptCh:
+			case <-time.After(5 * time.Second):
+				t.Fatal("timeout waiting for routed accept stream")
+			}
+			defer routedDestStream.Close()
+
+			for _, want := range routedPayloads {
+				got := readExactlyOneMessage(t, routedDestStream, len(want))
+				if !bytes.Equal(got, want) {
+					t.Fatalf("routed stream payload mismatch: got %q want %q", got, want)
+				}
+			}
+
+			if err := originRoutedStream.Close(); err != nil {
+				t.Fatalf("close routed origin stream: %v", err)
+			}
+			eofBuf := make([]byte, 1)
+			if _, err := routedDestStream.Read(eofBuf); !errors.Is(err, io.EOF) {
+				t.Fatalf("expected EOF after routed close, got %v", err)
 			}
 		})
 
@@ -1848,7 +1956,7 @@ func TestProductionSanity(t *testing.T) {
 		circ := circuit.NewCircuit("c1", []peer.ID{"r1"})
 		circ.SetState(circuit.StateActive)
 		m.activeConnections[dest] = []*circuit.Circuit{circ}
-		m.setPendingTransmission(dest, "sess", []byte("short"), []*ces.Shard{{Index: 0, Data: []byte("x")}})
+		m.setPendingTransmission(dest, "sess", []byte("short"), []*ces.Shard{{Index: 0, Data: []byte("x")}}, false)
 		if err := m.reschedulePendingShards(context.Background(), dest); err == nil {
 			t.Fatal("expected auth key decode failure")
 		}

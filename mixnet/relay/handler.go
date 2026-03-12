@@ -36,8 +36,13 @@ const (
 	nonceSize      = 24 // XChaCha20-Poly1305
 	writeChunkSize = 256 * 1024
 
-	frameVersionFullOnion  byte = 0x01
-	frameVersionHeaderOnly byte = 0x02
+	frameVersionFullOnion              byte = 0x01
+	frameVersionHeaderOnly             byte = 0x02
+	frameVersionSessionSetupHeaderOnly byte = 0x03
+	frameVersionSessionDataHeaderOnly  byte = 0x04
+	frameVersionSessionSetupFullOnion  byte = 0x05
+	frameVersionSessionDataFullOnion   byte = 0x06
+	frameVersionSessionClose           byte = 0x07
 )
 
 var relayChunkPool = sync.Pool{
@@ -48,10 +53,27 @@ var relayChunkPool = sync.Pool{
 }
 
 const (
-	msgTypeData     byte = 0x00
-	msgTypeCloseReq byte = 0x01
-	msgTypeCloseAck byte = 0x02
+	msgTypeData                byte = 0x00
+	msgTypeCloseReq            byte = 0x01
+	msgTypeCloseAck            byte = 0x02
+	msgTypeSessionSetup        byte = 0x03
+	msgTypeSessionData         byte = 0x04
+	msgTypeSessionClose        byte = 0x05
+	sessionDataFlagSequenced   byte = 0x01
+	sessionRouteModeHeaderOnly byte = 0x01
+	sessionRouteModeFullOnion  byte = 0x02
 )
+
+type sessionRouteEntry struct {
+	baseSessionID string
+	nextHop       string
+	nextPeer      peer.ID
+	isFinal       bool
+	mode          byte
+	finalTemplate []byte
+	dst           network.Stream
+	lastActivity  time.Time
+}
 
 func MaxEncryptedPayloadSize() int {
 	const defaultMultiplier = 4
@@ -82,33 +104,45 @@ type RelayInfo struct {
 
 // Handler manages all active relay streams and enforces resource limits.
 type Handler struct {
-	host              host.Host
-	maxBandwidth      int64
-	maxCircuits       int
-	useRCMgr          bool
-	serviceName       string
-	activeRelays      map[string]*RelayInfo // circuitID -> relay info
-	protocolID        string
-	mu                sync.RWMutex
-	muKeys            sync.RWMutex
-	circuitKeys       map[string][]byte // circuitID -> hop key
-	waitBandwidth     func(context.Context, int64) error
-	recordBandwidth   func(string, int64)
-	reportUtilization func(int)
+	host                    host.Host
+	maxBandwidth            int64
+	maxCircuits             int
+	useRCMgr                bool
+	serviceName             string
+	sessionRouteIdleTimeout time.Duration
+	activeRelays            map[string]*RelayInfo // circuitID -> relay info
+	protocolID              string
+	mu                      sync.RWMutex
+	muKeys                  sync.RWMutex
+	circuitKeys             map[string][]byte // circuitID -> hop key
+	waitBandwidth           func(context.Context, int64) error
+	recordBandwidth         func(string, int64)
+	reportUtilization       func(int)
 }
 
 // NewHandler creates a new relay Handler with the specified limits.
 func NewHandler(host host.Host, maxCircuits int, maxBandwidth int64) *Handler {
 	return &Handler{
-		host:         host,
-		maxBandwidth: maxBandwidth,
-		maxCircuits:  maxCircuits,
-		useRCMgr:     true,
-		serviceName:  "mixnet-relay",
-		activeRelays: make(map[string]*RelayInfo),
-		protocolID:   ProtocolID,
-		circuitKeys:  make(map[string][]byte),
+		host:                    host,
+		maxBandwidth:            maxBandwidth,
+		maxCircuits:             maxCircuits,
+		useRCMgr:                true,
+		serviceName:             "mixnet-relay",
+		sessionRouteIdleTimeout: 30 * time.Second,
+		activeRelays:            make(map[string]*RelayInfo),
+		protocolID:              ProtocolID,
+		circuitKeys:             make(map[string][]byte),
 	}
+}
+
+// SetSessionRouteIdleTimeout configures the idle timeout for routed session state.
+func (h *Handler) SetSessionRouteIdleTimeout(timeout time.Duration) {
+	if timeout <= 0 {
+		timeout = 30 * time.Second
+	}
+	h.mu.Lock()
+	h.sessionRouteIdleTimeout = timeout
+	h.mu.Unlock()
 }
 
 // HandleStream implements the libp2p stream handler for incoming relay requests.
@@ -150,10 +184,16 @@ func (h *Handler) HandleStream(stream network.Stream) {
 	var dst network.Stream
 	var dstPeer peer.ID
 	var dstIsFinal bool
+	sessionRoutes := make(map[string]*sessionRouteEntry)
 
 	defer func() {
 		if dst != nil {
 			_ = dst.Close()
+		}
+		for _, route := range sessionRoutes {
+			if route != nil && route.dst != nil {
+				_ = route.dst.Close()
+			}
 		}
 	}()
 
@@ -170,16 +210,31 @@ func (h *Handler) HandleStream(stream network.Stream) {
 		err = func(ctx context.Context) error {
 			defer cancel()
 
-			key := h.getCircuitKey(circuitID)
-			if len(key) == 0 {
-				return fmt.Errorf("missing circuit key")
-			}
-
 			// Header-only frames are handled in a dedicated streaming path so the
 			// relay only decrypts the onion header and forwards the remaining
 			// payload bytes without rebuilding a full [header][payload] buffer.
 			if frameVersion == frameVersionHeaderOnly {
+				key := h.getCircuitKey(circuitID)
+				if len(key) == 0 {
+					return fmt.Errorf("missing circuit key")
+				}
 				return h.handleHeaderOnlyFrameStream(ctx, reader, circuitID, payloadLen, key, &dst, &dstPeer, &dstIsFinal, stream)
+			}
+			if frameVersion == frameVersionSessionSetupHeaderOnly || frameVersion == frameVersionSessionSetupFullOnion {
+				key := h.getCircuitKey(circuitID)
+				if len(key) == 0 {
+					return fmt.Errorf("missing circuit key")
+				}
+				return h.handleSessionSetupFrame(ctx, reader, circuitID, frameVersion, payloadLen, key, sessionRoutes)
+			}
+			if frameVersion == frameVersionSessionDataHeaderOnly {
+				return h.handleSessionDataFrameStream(ctx, reader, circuitID, frameVersion, payloadLen, sessionRoutes)
+			}
+			if frameVersion == frameVersionSessionDataFullOnion {
+				return h.handleSessionDataFrame(ctx, reader, circuitID, frameVersion, payloadLen, sessionRoutes)
+			}
+			if frameVersion == frameVersionSessionClose {
+				return h.handleSessionCloseFrame(ctx, reader, circuitID, payloadLen, sessionRoutes)
 			}
 
 			encPayload, releaseMem, err := readEncryptedFramePayload(reader, stream.Scope(), payloadLen)
@@ -201,6 +256,10 @@ func (h *Handler) HandleStream(stream network.Stream) {
 
 			switch frameVersion {
 			case frameVersionFullOnion:
+				key := h.getCircuitKey(circuitID)
+				if len(key) == 0 {
+					return fmt.Errorf("missing circuit key")
+				}
 				plaintext, err := decryptHopPayload(key, encPayload)
 				if err != nil {
 					return err
@@ -409,6 +468,377 @@ func (h *Handler) handleHeaderOnlyFrameStream(ctx context.Context, reader *bufio
 	return err
 }
 
+func (h *Handler) handleSessionSetupFrame(ctx context.Context, reader *bufio.Reader, circuitID string, frameVersion byte, payloadLen int, key []byte, sessionRoutes map[string]*sessionRouteEntry) error {
+	payload := make([]byte, payloadLen)
+	if _, err := io.ReadFull(reader, payload); err != nil {
+		return err
+	}
+	h.mu.RLock()
+	recordBandwidth := h.recordBandwidth
+	waitBandwidth := h.waitBandwidth
+	maxBandwidth := h.maxBandwidth
+	h.mu.RUnlock()
+	if recordBandwidth != nil {
+		recordBandwidth("in", int64(len(payload)))
+	}
+
+	baseID, mode, encryptedHeader, keyData, err := decodeSessionSetupFramePayload(payload)
+	if err != nil {
+		return err
+	}
+	if expected := sessionSetupFrameVersionForMode(mode); expected != frameVersion {
+		return fmt.Errorf("session setup mode/version mismatch: mode=%d version=%d", mode, frameVersion)
+	}
+	plaintext, err := decryptHopPayload(key, encryptedHeader)
+	if err != nil {
+		return err
+	}
+	isFinal, nextHop, innerPayload, err := parseHopPayload(plaintext)
+	if err != nil {
+		return err
+	}
+	nextPeer, err := peer.Decode(nextHop)
+	if err != nil {
+		return fmt.Errorf("session routing requires peer-id next hop, got %q", nextHop)
+	}
+	route := &sessionRouteEntry{
+		baseSessionID: baseID,
+		nextHop:       nextHop,
+		nextPeer:      nextPeer,
+		isFinal:       isFinal,
+		mode:          mode,
+		finalTemplate: []byte{msgTypeSessionData},
+		lastActivity:  time.Now(),
+	}
+	if existing := sessionRoutes[baseID]; existing != nil && existing.dst != nil {
+		_ = existing.dst.Close()
+	}
+	sessionRoutes[baseID] = route
+	dst, err := h.sessionRouteStream(ctx, route)
+	if err != nil {
+		delete(sessionRoutes, baseID)
+		return err
+	}
+	var writer io.Writer = dst
+	if maxBandwidth > 0 {
+		writer = &rateLimitedWriter{w: dst, bytesPerSec: maxBandwidth}
+	}
+	if isFinal {
+		finalPayload := append([]byte{msgTypeSessionSetup}, innerPayload...)
+		if _, err := writePayloadWithBandwidth(ctx, writer, finalPayload, writeChunkSize, waitBandwidth, recordBandwidth); err != nil {
+			_ = dst.Close()
+			return err
+		}
+		_ = dst.Close()
+		return nil
+	}
+	forwardPayload, err := encodeSessionSetupFramePayload(baseID, mode, innerPayload, keyData)
+	if err != nil {
+		return err
+	}
+	if _, err := writeEncryptedFrame(ctx, writer, circuitID, frameVersion, forwardPayload, waitBandwidth, recordBandwidth); err != nil {
+		if route.dst != nil {
+			_ = route.dst.Close()
+			route.dst = nil
+		}
+		return err
+	}
+	return nil
+}
+
+func (h *Handler) handleSessionDataFrame(ctx context.Context, reader *bufio.Reader, circuitID string, frameVersion byte, payloadLen int, sessionRoutes map[string]*sessionRouteEntry) error {
+	payload := make([]byte, payloadLen)
+	if _, err := io.ReadFull(reader, payload); err != nil {
+		return err
+	}
+	h.mu.RLock()
+	recordBandwidth := h.recordBandwidth
+	waitBandwidth := h.waitBandwidth
+	maxBandwidth := h.maxBandwidth
+	h.mu.RUnlock()
+	if recordBandwidth != nil {
+		recordBandwidth("in", int64(len(payload)))
+	}
+	baseID, err := sessionFrameBaseID(payload)
+	if err != nil {
+		return err
+	}
+	route, ok := h.sessionRoute(sessionRoutes, baseID)
+	if !ok {
+		return fmt.Errorf("missing session route for %s", baseID)
+	}
+	if expected := sessionDataFrameVersionForMode(route.mode); expected != frameVersion {
+		return fmt.Errorf("session data mode/version mismatch: mode=%d version=%d", route.mode, frameVersion)
+	}
+	dst, err := h.sessionRouteStream(ctx, route)
+	if err != nil {
+		return err
+	}
+	var writer io.Writer = dst
+	if maxBandwidth > 0 {
+		writer = &rateLimitedWriter{w: dst, bytesPerSec: maxBandwidth}
+	}
+	if route.isFinal {
+		finalPayload := make([]byte, 1+len(payload))
+		finalPayload[0] = msgTypeSessionData
+		copy(finalPayload[1:], payload)
+		if _, err := writePayloadWithBandwidth(ctx, writer, finalPayload, writeChunkSize, waitBandwidth, recordBandwidth); err != nil {
+			_ = dst.Close()
+			return err
+		}
+		_ = dst.Close()
+		return nil
+	}
+	if _, err := writeEncryptedFrame(ctx, writer, circuitID, frameVersion, payload, waitBandwidth, recordBandwidth); err != nil {
+		if route.dst != nil {
+			_ = route.dst.Close()
+			route.dst = nil
+		}
+		return err
+	}
+	return nil
+}
+
+func (h *Handler) handleSessionDataFrameStream(ctx context.Context, reader *bufio.Reader, circuitID string, frameVersion byte, payloadLen int, sessionRoutes map[string]*sessionRouteEntry) error {
+	h.mu.RLock()
+	recordBandwidth := h.recordBandwidth
+	waitBandwidth := h.waitBandwidth
+	maxBandwidth := h.maxBandwidth
+	h.mu.RUnlock()
+
+	baseID, controlPrefix, dataPayloadLen, err := readSessionDataControlPrefix(reader, payloadLen, recordBandwidth)
+	if err != nil {
+		return err
+	}
+	route, ok := h.sessionRoute(sessionRoutes, baseID)
+	if !ok {
+		return fmt.Errorf("missing session route for %s", baseID)
+	}
+	if expected := sessionDataFrameVersionForMode(route.mode); expected != frameVersion {
+		return fmt.Errorf("session data mode/version mismatch: mode=%d version=%d", route.mode, frameVersion)
+	}
+	dst, err := h.sessionRouteStream(ctx, route)
+	if err != nil {
+		return err
+	}
+	var writer io.Writer = dst
+	if maxBandwidth > 0 {
+		writer = &rateLimitedWriter{w: dst, bytesPerSec: maxBandwidth}
+	}
+	if route.isFinal {
+		if _, err := writePayloadWithBandwidth(ctx, writer, append(route.finalTemplate, controlPrefix...), writeChunkSize, waitBandwidth, recordBandwidth); err != nil {
+			_ = dst.Close()
+			return err
+		}
+		if _, err := pipePayloadWithBandwidth(ctx, reader, writer, dataPayloadLen, waitBandwidth, recordBandwidth); err != nil {
+			_ = dst.Close()
+			return err
+		}
+		_ = dst.Close()
+		return nil
+	}
+	if _, err := writeEncryptedFrameHeaderOnlyPayloadPrefix(ctx, writer, circuitID, frameVersion, payloadLen, controlPrefix, waitBandwidth, recordBandwidth); err != nil {
+		if route.dst != nil {
+			_ = route.dst.Close()
+			route.dst = nil
+		}
+		return err
+	}
+	_, err = pipePayloadWithBandwidth(ctx, reader, writer, dataPayloadLen, waitBandwidth, recordBandwidth)
+	return err
+}
+
+func (h *Handler) handleSessionCloseFrame(ctx context.Context, reader *bufio.Reader, circuitID string, payloadLen int, sessionRoutes map[string]*sessionRouteEntry) error {
+	payload := make([]byte, payloadLen)
+	if _, err := io.ReadFull(reader, payload); err != nil {
+		return err
+	}
+	h.mu.RLock()
+	recordBandwidth := h.recordBandwidth
+	waitBandwidth := h.waitBandwidth
+	maxBandwidth := h.maxBandwidth
+	h.mu.RUnlock()
+	if recordBandwidth != nil {
+		recordBandwidth("in", int64(len(payload)))
+	}
+	baseID, err := decodeSessionCloseFramePayload(payload)
+	if err != nil {
+		return err
+	}
+	route, ok := h.sessionRoute(sessionRoutes, baseID)
+	if !ok {
+		return nil
+	}
+	delete(sessionRoutes, baseID)
+	dst, err := h.sessionRouteStream(ctx, route)
+	if err != nil {
+		h.closeSessionRoute(route)
+		return err
+	}
+	var writer io.Writer = dst
+	if maxBandwidth > 0 {
+		writer = &rateLimitedWriter{w: dst, bytesPerSec: maxBandwidth}
+	}
+	if route.isFinal {
+		finalPayload := make([]byte, 1+len(payload))
+		finalPayload[0] = msgTypeSessionClose
+		copy(finalPayload[1:], payload)
+		if _, err := writePayloadWithBandwidth(ctx, writer, finalPayload, writeChunkSize, waitBandwidth, recordBandwidth); err != nil {
+			_ = dst.Close()
+			return err
+		}
+		_ = dst.Close()
+		return nil
+	}
+	if _, err := writeEncryptedFrame(ctx, writer, circuitID, frameVersionSessionClose, payload, waitBandwidth, recordBandwidth); err != nil {
+		h.closeSessionRoute(route)
+		return err
+	}
+	h.closeSessionRoute(route)
+	return nil
+}
+
+func (h *Handler) sessionRouteTimeout() time.Duration {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	if h.sessionRouteIdleTimeout > 0 {
+		return h.sessionRouteIdleTimeout
+	}
+	return 30 * time.Second
+}
+
+func sessionSetupFrameVersionForMode(mode byte) byte {
+	if mode == sessionRouteModeHeaderOnly {
+		return frameVersionSessionSetupHeaderOnly
+	}
+	return frameVersionSessionSetupFullOnion
+}
+
+func sessionDataFrameVersionForMode(mode byte) byte {
+	if mode == sessionRouteModeHeaderOnly {
+		return frameVersionSessionDataHeaderOnly
+	}
+	return frameVersionSessionDataFullOnion
+}
+
+func (h *Handler) sessionRoute(sessionRoutes map[string]*sessionRouteEntry, baseID string) (*sessionRouteEntry, bool) {
+	route := sessionRoutes[baseID]
+	if route == nil {
+		return nil, false
+	}
+	timeout := h.sessionRouteTimeout()
+	if timeout > 0 && !route.lastActivity.IsZero() && time.Since(route.lastActivity) > timeout {
+		h.closeSessionRoute(route)
+		delete(sessionRoutes, baseID)
+		return nil, false
+	}
+	route.lastActivity = time.Now()
+	return route, true
+}
+
+func (h *Handler) sessionRouteStream(ctx context.Context, route *sessionRouteEntry) (network.Stream, error) {
+	protoID := ProtocolID
+	if route.isFinal {
+		protoID = FinalProtocolID
+		return h.openStream(ctx, route.nextPeer, protoID)
+	}
+	if route.dst != nil {
+		return route.dst, nil
+	}
+	dst, err := h.openStream(ctx, route.nextPeer, protoID)
+	if err != nil {
+		return nil, err
+	}
+	route.dst = dst
+	return dst, nil
+}
+
+func (h *Handler) closeSessionRoute(route *sessionRouteEntry) {
+	if route == nil || route.dst == nil {
+		return
+	}
+	_ = route.dst.Close()
+	route.dst = nil
+}
+
+func writeEncryptedFrameHeaderOnlyPayloadPrefix(ctx context.Context, w io.Writer, circuitID string, version byte, payloadLen int, controlPrefix []byte, waitBandwidth func(context.Context, int64) error, recordBandwidth func(string, int64)) (int, error) {
+	if len(circuitID) == 0 || len(circuitID) > 255 {
+		return 0, fmt.Errorf("invalid circuit id")
+	}
+	frameHeader := make([]byte, 1+len(circuitID)+1+4)
+	frameHeader[0] = byte(len(circuitID))
+	copy(frameHeader[1:], []byte(circuitID))
+	frameHeader[1+len(circuitID)] = version
+	binary.LittleEndian.PutUint32(frameHeader[1+len(circuitID)+1:], uint32(payloadLen))
+
+	total, err := writePayloadWithBandwidth(ctx, w, frameHeader, len(frameHeader), waitBandwidth, recordBandwidth)
+	if err != nil {
+		return total, err
+	}
+	n, err := writePayloadWithBandwidth(ctx, w, controlPrefix, writeChunkSize, waitBandwidth, recordBandwidth)
+	return total + n, err
+}
+
+func readSessionDataControlPrefix(reader *bufio.Reader, payloadLen int, recordBandwidth func(string, int64)) (string, []byte, int, error) {
+	readTracked := func(buf []byte) error {
+		if _, err := io.ReadFull(reader, buf); err != nil {
+			return err
+		}
+		if recordBandwidth != nil {
+			recordBandwidth("in", int64(len(buf)))
+		}
+		return nil
+	}
+
+	if payloadLen < 1 {
+		return "", nil, 0, fmt.Errorf("session data payload too short")
+	}
+	baseLenBuf := make([]byte, 1)
+	if err := readTracked(baseLenBuf); err != nil {
+		return "", nil, 0, err
+	}
+	baseLen := int(baseLenBuf[0])
+	if payloadLen < 1+baseLen+1+4+4+2 {
+		return "", nil, 0, fmt.Errorf("session data payload truncated")
+	}
+	prefix := append([]byte(nil), baseLenBuf...)
+	baseAndFlags := make([]byte, baseLen+1)
+	if err := readTracked(baseAndFlags); err != nil {
+		return "", nil, 0, err
+	}
+	prefix = append(prefix, baseAndFlags...)
+	baseID := string(baseAndFlags[:baseLen])
+	flags := baseAndFlags[baseLen]
+	if flags&sessionDataFlagSequenced != 0 {
+		seqBuf := make([]byte, 8)
+		if err := readTracked(seqBuf); err != nil {
+			return "", nil, 0, err
+		}
+		prefix = append(prefix, seqBuf...)
+	}
+	metaBuf := make([]byte, 10)
+	if err := readTracked(metaBuf); err != nil {
+		return "", nil, 0, err
+	}
+	prefix = append(prefix, metaBuf...)
+	authLen := int(binary.LittleEndian.Uint16(metaBuf[8:10]))
+	if payloadLen < len(prefix)+authLen {
+		return "", nil, 0, fmt.Errorf("invalid session data auth length")
+	}
+	if authLen > 0 {
+		authBuf := make([]byte, authLen)
+		if err := readTracked(authBuf); err != nil {
+			return "", nil, 0, err
+		}
+		prefix = append(prefix, authBuf...)
+	}
+	dataPayloadLen := payloadLen - len(prefix)
+	if dataPayloadLen < 0 {
+		return "", nil, 0, fmt.Errorf("invalid session data payload length")
+	}
+	return baseID, prefix, dataPayloadLen, nil
+}
+
 func (h *Handler) openStream(ctx context.Context, nextPeer peer.ID, protoID string) (network.Stream, error) {
 	h.mu.RLock()
 	host := h.host
@@ -594,6 +1024,77 @@ func (h *Handler) forwardByAddressHeaderOnlyStreaming(ctx context.Context, reade
 	}
 	_, err = pipePayloadWithBandwidth(ctx, reader, writer, dataPayloadLen, waitBandwidth, recordBandwidth)
 	return err
+}
+
+func decodeSessionSetupFramePayload(data []byte) (string, byte, []byte, []byte, error) {
+	if len(data) < 1 {
+		return "", 0, nil, nil, fmt.Errorf("session setup payload too short")
+	}
+	baseLen := int(data[0])
+	offset := 1
+	if len(data) < offset+baseLen+1+4 {
+		return "", 0, nil, nil, fmt.Errorf("session setup payload truncated")
+	}
+	baseID := string(data[offset : offset+baseLen])
+	offset += baseLen
+	mode := data[offset]
+	offset++
+	headerLen := int(binary.LittleEndian.Uint32(data[offset:]))
+	offset += 4
+	if headerLen < 0 || len(data) < offset+headerLen+4 {
+		return "", 0, nil, nil, fmt.Errorf("invalid session setup header length")
+	}
+	encryptedHeader := append([]byte(nil), data[offset:offset+headerLen]...)
+	offset += headerLen
+	keyLen := int(binary.LittleEndian.Uint32(data[offset:]))
+	offset += 4
+	if keyLen < 0 || len(data) < offset+keyLen {
+		return "", 0, nil, nil, fmt.Errorf("invalid session setup key length")
+	}
+	keyData := append([]byte(nil), data[offset:offset+keyLen]...)
+	return baseID, mode, encryptedHeader, keyData, nil
+}
+
+func encodeSessionSetupFramePayload(baseSessionID string, mode byte, encryptedHeader []byte, keyData []byte) ([]byte, error) {
+	if len(baseSessionID) > 0xff {
+		return nil, fmt.Errorf("base session id too long: %d", len(baseSessionID))
+	}
+	buf := make([]byte, 1+len(baseSessionID)+1+4+len(encryptedHeader)+4+len(keyData))
+	pos := 0
+	buf[pos] = byte(len(baseSessionID))
+	pos++
+	pos += copy(buf[pos:], baseSessionID)
+	buf[pos] = mode
+	pos++
+	binary.LittleEndian.PutUint32(buf[pos:], uint32(len(encryptedHeader)))
+	pos += 4
+	pos += copy(buf[pos:], encryptedHeader)
+	binary.LittleEndian.PutUint32(buf[pos:], uint32(len(keyData)))
+	pos += 4
+	copy(buf[pos:], keyData)
+	return buf, nil
+}
+
+func decodeSessionCloseFramePayload(data []byte) (string, error) {
+	if len(data) < 1 {
+		return "", fmt.Errorf("session payload too short")
+	}
+	baseLen := int(data[0])
+	if len(data) < 1+baseLen+4 {
+		return "", fmt.Errorf("session payload truncated")
+	}
+	return string(data[1 : 1+baseLen]), nil
+}
+
+func sessionFrameBaseID(data []byte) (string, error) {
+	if len(data) < 1 {
+		return "", fmt.Errorf("session payload too short")
+	}
+	baseLen := int(data[0])
+	if len(data) < 1+baseLen {
+		return "", fmt.Errorf("session payload truncated")
+	}
+	return string(data[1 : 1+baseLen]), nil
 }
 
 func waitForCloseAck(stream network.Stream) error {

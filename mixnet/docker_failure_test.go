@@ -29,10 +29,10 @@ type DockerNode struct {
 
 // DockerTestNetwork manages a network of Docker containers for testing
 type DockerTestNetwork struct {
-	Nodes     map[string]*DockerNode
-	Network   string
-	Subnet    string
-	TestDir   string
+	Nodes   map[string]*DockerNode
+	Network string
+	Subnet  string
+	TestDir string
 }
 
 // newDockerTestNetwork creates a new Docker test network
@@ -58,21 +58,21 @@ func generateNodeConfig(nodeIndex int, isRelay bool, bootstrapPeers []string) ma
 	ip := fmt.Sprintf("10.10.1.%d", 10+nodeIndex)
 
 	config := map[string]interface{}{
-		"listen_addrs":        []string{fmt.Sprintf("/ip4/%s/tcp/%d", ip, port)},
-		"enable_mixnet":       true,
-		"protocol_prefix":     "/mixnet/1.0.0",
-		"connection_timeout":  "30s",
-		"dial_timeout":        "10s",
-		"enable_relay":        true,
-		"relay_service":       isRelay,
-		"circuit_count":       3,
-		"erasure_threshold":   2,
-		"use_ces_pipeline":    true,
-		"discovery_interval":  "5s",
-		"heartbeat_interval":  "3s",
-		"failure_threshold":   3,
-		"max_peers":           50,
-		"max_circuits":        10,
+		"listen_addrs":       []string{fmt.Sprintf("/ip4/%s/tcp/%d", ip, port)},
+		"enable_mixnet":      true,
+		"protocol_prefix":    "/mixnet/1.0.0",
+		"connection_timeout": "30s",
+		"dial_timeout":       "10s",
+		"enable_relay":       true,
+		"relay_service":      isRelay,
+		"circuit_count":      3,
+		"erasure_threshold":  2,
+		"use_ces_pipeline":   true,
+		"discovery_interval": "5s",
+		"heartbeat_interval": "3s",
+		"failure_threshold":  3,
+		"max_peers":          50,
+		"max_circuits":       10,
 	}
 
 	if len(bootstrapPeers) > 0 {
@@ -343,6 +343,45 @@ func TestDockerFailureAndRecoverFromFailure(t *testing.T) {
 		t.Log("Message after recovery sent successfully")
 
 		t.Log("Docker-based failure and recovery test completed!")
+	})
+
+	t.Run("docker_session_routing_stream_recover_from_failure", func(t *testing.T) {
+		origin := network.Nodes["mixnet-origin"]
+		destination := network.Nodes["mixnet-destination"]
+		relays := []*DockerNode{
+			network.Nodes["mixnet-relay-1"],
+			network.Nodes["mixnet-relay-2"],
+			network.Nodes["mixnet-relay-3"],
+			network.Nodes["mixnet-relay-4"],
+			network.Nodes["mixnet-relay-5"],
+			network.Nodes["mixnet-relay-6"],
+			network.Nodes["mixnet-relay-7"],
+		}
+
+		beforePayload := []byte("session-routing-stream-before-recovery")
+		if err := network.sendMessage(ctx, origin, destination, beforePayload); err != nil {
+			t.Fatalf("session-routing send before recovery failed: %v", err)
+		}
+
+		relayToFail := relays[0]
+		network.stopContainer(t, relayToFail.Name)
+		time.Sleep(2 * time.Second)
+
+		if err := network.triggerRecovery(ctx, origin, destination); err != nil {
+			t.Fatalf("session-routing recover from failure failed: %v", err)
+		}
+		recoveredCircuits, err := network.getActiveCircuits(ctx, origin, destination)
+		if err != nil {
+			t.Fatalf("session-routing active circuits failed: %v", err)
+		}
+		if len(recoveredCircuits) == 0 {
+			t.Fatal("no recovered circuits after session-routing recovery")
+		}
+
+		afterPayload := []byte("session-routing-stream-after-recovery")
+		if err := network.sendMessage(ctx, origin, destination, afterPayload); err != nil {
+			t.Fatalf("session-routing send after recovery failed: %v", err)
+		}
 	})
 
 	t.Run("cleanup", func(t *testing.T) {
