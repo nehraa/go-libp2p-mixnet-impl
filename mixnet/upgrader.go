@@ -905,13 +905,13 @@ func (m *Mixnet) streamSession(sessionID string) (sessionKey, bool) {
 	return key, ok
 }
 
-func (m *Mixnet) touchRouteSessionState(baseID string) *senderSessionRouteState {
+// touchRouteSessionStateLocked initializes or updates the session route state
+// for baseID. Callers must hold m.mu.
+func (m *Mixnet) touchRouteSessionStateLocked(baseID string) *senderSessionRouteState {
 	timeout := 30 * time.Second
 	if m.config != nil && m.config.SessionRouteIdleTimeout > 0 {
 		timeout = m.config.SessionRouteIdleTimeout
 	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
 	if m.sessionRoutes == nil {
 		m.sessionRoutes = make(map[string]*senderSessionRouteState)
 	}
@@ -933,31 +933,16 @@ func (m *Mixnet) touchRouteSessionState(baseID string) *senderSessionRouteState 
 	return state
 }
 
-func (m *Mixnet) nextRouteSequence(baseID string) uint64 {
-	timeout := 30 * time.Second
-	if m.config != nil && m.config.SessionRouteIdleTimeout > 0 {
-		timeout = m.config.SessionRouteIdleTimeout
-	}
+func (m *Mixnet) touchRouteSessionState(baseID string) *senderSessionRouteState {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.sessionRoutes == nil {
-		m.sessionRoutes = make(map[string]*senderSessionRouteState)
-	}
-	state := m.sessionRoutes[baseID]
-	if state == nil {
-		state = &senderSessionRouteState{
-			setupByCircuit: make(map[string]struct{}),
-		}
-		m.sessionRoutes[baseID] = state
-	}
-	state.lastUsed = time.Now()
-	if state.timer == nil {
-		state.timer = time.AfterFunc(timeout, func() {
-			m.clearStreamSession(baseID)
-		})
-	} else {
-		state.timer.Reset(timeout)
-	}
+	return m.touchRouteSessionStateLocked(baseID)
+}
+
+func (m *Mixnet) nextRouteSequence(baseID string) uint64 {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	state := m.touchRouteSessionStateLocked(baseID)
 	seq := state.nextSeq
 	state.nextSeq++
 	return seq
