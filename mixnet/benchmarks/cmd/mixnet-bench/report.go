@@ -94,7 +94,7 @@ func writeReport(outputDir string, opts suiteOptions, summaries []summaryRecord,
 	if opts.Profile == "full" {
 		adjustmentNote = "Full runs do not generate graphs. Use raw_runs.csv and summary.csv for the full data dump, including CES scenarios."
 	} else if opts.Profile == "quick" {
-		adjustmentNote = "Quick uses fixed 256KB application writes and compares direct libp2p against header-only and full-onion mixnet with session routing enabled at 2 hops and 1 circuit. The tables below show exact latency and throughput values plus percent deltas."
+		adjustmentNote = "Quick uses fixed 256KB application writes and compares direct libp2p against header-only and full-onion mixnet with session routing enabled at 2 hops and 1 circuit. The tables below show exact latency and throughput values plus percent deltas. In routed mode, full-onion data frames reuse cached route state and no longer pay the legacy per-frame route-setup cost, so routed header-only and routed full-onion are expected to be much closer than the legacy non-routed modes."
 	}
 	data := reportData{
 		Profile:     opts.Profile,
@@ -479,7 +479,7 @@ func buildComparisonTables(opts suiteOptions, lookup map[string][]summaryRecord)
 		buildThroughputComparisonTable(
 			lookup,
 			"Quick routed stream throughput comparison: 2 hops, 1 circuit",
-			"Exact mean throughput and percent retention versus direct plus full-versus-header delta.",
+			"Exact mean throughput and percent delta versus direct plus full-versus-header delta.",
 			"focused-direct-baseline",
 			"focused-header-only-c1-routed",
 			"focused-full-c1-routed",
@@ -574,9 +574,9 @@ func buildThroughputComparisonTableFromMaps(title, description string, baseBySiz
 			base.SizeLabel,
 			fmt.Sprintf("%.3f", base.ThroughputMeanMBps),
 			fmt.Sprintf("%.3f", header.ThroughputMeanMBps),
-			fmt.Sprintf("%.2f%%", percentOf(header.ThroughputMeanMBps, base.ThroughputMeanMBps)),
+			fmt.Sprintf("%.2f%%", percentDelta(header.ThroughputMeanMBps, base.ThroughputMeanMBps)),
 			fmt.Sprintf("%.3f", full.ThroughputMeanMBps),
-			fmt.Sprintf("%.2f%%", percentOf(full.ThroughputMeanMBps, base.ThroughputMeanMBps)),
+			fmt.Sprintf("%.2f%%", percentDelta(full.ThroughputMeanMBps, base.ThroughputMeanMBps)),
 			fmt.Sprintf("%.2f%%", percentDelta(full.ThroughputMeanMBps, header.ThroughputMeanMBps)),
 		})
 	}
@@ -588,9 +588,9 @@ func buildThroughputComparisonTableFromMaps(title, description string, baseBySiz
 			"Size",
 			"Direct MiB/s",
 			"Header-only MiB/s",
-			"Header-only retained vs direct %",
+			"Header-only vs direct %",
 			"Full onion MiB/s",
-			"Full onion retained vs direct %",
+			"Full onion vs direct %",
 			"Full vs header-only %",
 		},
 		Rows: rows,
