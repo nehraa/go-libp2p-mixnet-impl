@@ -87,7 +87,7 @@ separate files:
 - `visual_proof.json`
 - matching proof tables inside `report.html`
 
-Disable that extra step with:
+Enable that extra step with:
 
 ```bash
 go run ./mixnet/benchmarks/cmd/mixnet-bench --profile quick --visual-proof
