@@ -96,7 +96,9 @@ header-only session-data frames.
 | `circuit/` | Circuit state, circuit construction, heartbeats, and recovery. |
 | `relay/` | Relay-side forwarding handlers and relay key exchange. |
 | `ces/` | Optional Compress-Encrypt-Shard pipeline implementation. |
+| `benchmark_exports.go` / `benchmarks/` | Benchmark-only exports plus the local benchmark CLI, docs, and generated-report conventions. |
 | `metrics*.go` / `resource_management.go` / `failure_detection.go` | Operations, observability, and runtime protections. |
+| `*_test.go` / `tests/` | Package tests plus the dashboard and Docker harness used to run the production sanity suite. |
 | `Docs/` | Narrative protocol, configuration, and component documentation. |
 
 ## Documentation map
@@ -114,6 +116,12 @@ Useful starting points:
 - `Docs/README/project-structure.md`: file-by-file map of the mixnet folder.
 - `Docs/PRD/design.md`: end-to-end design and protocol walkthrough.
 - `Docs/PRD/configuration-reference.md`: configuration defaults and trade-offs.
+- `benchmarks/README.md`: local benchmark workflow and output format.
+- `tests/README.md`: local versus Docker sanity-test entry points.
+
+Generated benchmark artifacts live under `benchmarks/output/`. Those
+timestamped run directories are local-only and are intentionally not
+version-controlled.
 
 ## Public API entry points
 

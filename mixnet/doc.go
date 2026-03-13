@@ -42,4 +42,7 @@
 //
 // For narrative documentation and design notes, see the markdown documents in
 // the mixnet/Docs directory and the package README in mixnet/README.md.
+// Benchmark tooling lives under mixnet/benchmarks, helper test harnesses live
+// under mixnet/tests, and generated benchmark artifacts under
+// mixnet/benchmarks/output are intentionally local-only.
 package mixnet

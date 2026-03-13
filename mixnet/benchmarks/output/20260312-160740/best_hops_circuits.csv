@@ -1,1 +1,0 @@
-mode,size_bytes,size_label,scenario_id,label,hop_count,circuit_count,total_mean_ms,throughput_mean_mib_per_s,per_hop_mean_ms,key_exchange_mean_ms,transfer_mean_ms

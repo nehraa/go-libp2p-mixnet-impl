@@ -160,6 +160,11 @@ When `--visual-proof` is enabled, the run also writes:
 For the quick profile it includes the routed comparison charts and the compact
 latency/throughput tables described above.
 
+Those timestamped output directories are local-only artifacts and are not kept
+in git. See `mixnet/benchmarks/output/README.md` for the expected contents of
+that scratch area and use `MIXNET_BENCH_OUTPUT_DIR` if you want the runner to
+write elsewhere.
+
 ## Notes
 
 - The payload generator uses deterministic random bytes so compression numbers reflect a noise-like payload, not highly compressible text.

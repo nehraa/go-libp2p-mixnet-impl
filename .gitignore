@@ -10,7 +10,6 @@ pentagi
 .DS_Store
 mixnet-test/docker-compose.test.yml
 mixnet-test/docker-compose.generated.yml
-mixnet/benchmarks/*.md
 .claude-flow/
 .githooks/
 .github/
