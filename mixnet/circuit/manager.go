@@ -30,9 +30,17 @@ type RelayInfo struct {
 // CircuitConfig controls how many circuits are built and how long stream setup
 // is allowed to take.
 type CircuitConfig struct {
-	HopCount      int
-	CircuitCount  int
+	HopCount     int
+	CircuitCount int
+
 	StreamTimeout time.Duration
+
+	// AdaptiveScaling enables bounded auto-adjustment of circuit count based on
+	// relay headroom and current recovery state.
+	AdaptiveScalingEnabled bool
+	AdaptiveScalingMin     int
+	AdaptiveScalingMax     int
+	AdaptiveScalingStep    int
 }
 
 // StreamHandler tracks the active libp2p stream associated with a circuit.
@@ -71,6 +79,18 @@ func NewCircuitManager(cfg *CircuitConfig) *CircuitManager {
 	if threshold < 1 {
 		threshold = 1
 	}
+	if cfg.AdaptiveScalingStep <= 0 {
+		cfg.AdaptiveScalingStep = 1
+	}
+	if cfg.AdaptiveScalingMin <= 0 {
+		cfg.AdaptiveScalingMin = cfg.CircuitCount
+	}
+	if cfg.AdaptiveScalingMax <= 0 {
+		cfg.AdaptiveScalingMax = cfg.CircuitCount
+	}
+	if cfg.AdaptiveScalingMax < cfg.AdaptiveScalingMin {
+		cfg.AdaptiveScalingMax = cfg.AdaptiveScalingMin
+	}
 
 	streamTimeout := cfg.StreamTimeout
 	if streamTimeout == 0 {
@@ -99,19 +119,23 @@ func (m *CircuitManager) SetHost(h host.Host) {
 // BuildCircuits builds up to CircuitCount unique circuits from the supplied
 // relay candidates while excluding the destination and local host.
 func (m *CircuitManager) BuildCircuits(ctx context.Context, dest peer.ID, relays []RelayInfo) ([]*Circuit, error) {
-	if len(relays) < m.cfg.HopCount*m.cfg.CircuitCount {
+	targetCircuits := m.AdaptiveTargetCircuitCount(len(relays))
+	requiredRelays := m.cfg.HopCount * targetCircuits
+
+	if len(relays) < requiredRelays {
 		return nil, fmt.Errorf("insufficient relays: have %d, need %d",
-			len(relays), m.cfg.HopCount*m.cfg.CircuitCount)
+			len(relays), requiredRelays)
 	}
 
 	filtered := m.filterRelays(relays, dest)
-	if len(filtered) < m.cfg.HopCount*m.cfg.CircuitCount {
+	if len(filtered) < requiredRelays {
 		return nil, fmt.Errorf("insufficient relays after filtering: have %d, need %d",
-			len(filtered), m.cfg.HopCount*m.cfg.CircuitCount)
+			len(filtered), requiredRelays)
 	}
 
-	circuits := m.buildUniqueCircuits(filtered)
+	circuits := m.buildUniqueCircuits(filtered, targetCircuits)
 
+	m.mu.Lock()
 	for _, c := range circuits {
 		m.circuits[c.ID] = c
 	}
@@ -120,6 +144,11 @@ func (m *CircuitManager) BuildCircuits(ctx context.Context, dest peer.ID, relays
 	for i, r := range filtered {
 		m.relayPool[i] = r.PeerID
 	}
+	m.threshold = targetCircuits - 1
+	if m.threshold < 1 {
+		m.threshold = 1
+	}
+	m.mu.Unlock()
 
 	return circuits, nil
 }
@@ -361,15 +390,15 @@ func (m *CircuitManager) filterRelays(relays []RelayInfo, exclude peer.ID) []Rel
 	return result
 }
 
-func (m *CircuitManager) buildUniqueCircuits(relays []RelayInfo) []*Circuit {
+func (m *CircuitManager) buildUniqueCircuits(relays []RelayInfo, circuitCount int) []*Circuit {
 	rand.Shuffle(len(relays), func(i, j int) {
 		relays[i], relays[j] = relays[j], relays[i]
 	})
 
-	circuits := make([]*Circuit, 0, m.cfg.CircuitCount)
+	circuits := make([]*Circuit, 0, circuitCount)
 	used := make(map[peer.ID]bool)
 
-	for i := 0; i < m.cfg.CircuitCount && len(circuits) < m.cfg.CircuitCount; i++ {
+	for i := 0; i < circuitCount && len(circuits) < circuitCount; i++ {
 		var peers []peer.ID
 
 		for j := 0; j < m.cfg.HopCount; j++ {
@@ -393,6 +422,112 @@ func (m *CircuitManager) buildUniqueCircuits(relays []RelayInfo) []*Circuit {
 	}
 
 	return circuits
+}
+
+// AdaptiveTargetCircuitCount returns the bounded target circuit count based on
+// the current relay pool size and manager health signals. When adaptive scaling
+// is disabled, it returns the fixed configured circuit count.
+func (m *CircuitManager) AdaptiveTargetCircuitCount(relayCount int) int {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	target := m.cfg.CircuitCount
+	if !m.cfg.AdaptiveScalingEnabled {
+		return target
+	}
+	if m.cfg.HopCount < 1 {
+		return target
+	}
+
+	minCount := m.cfg.AdaptiveScalingMin
+	if minCount < 1 {
+		minCount = 1
+	}
+	maxCount := m.cfg.AdaptiveScalingMax
+	if maxCount < minCount {
+		maxCount = minCount
+	}
+	step := m.cfg.AdaptiveScalingStep
+	if step < 1 {
+		step = 1
+	}
+
+	if relayCount > 0 {
+		maxByRelayPool := relayCount / m.cfg.HopCount
+		if maxByRelayPool < 1 {
+			maxByRelayPool = 1
+		}
+		if maxByRelayPool < maxCount {
+			maxCount = maxByRelayPool
+		}
+	}
+
+	active := 0
+	failed := 0
+	for _, c := range m.circuits {
+		switch c.GetState() {
+		case StateActive:
+			active++
+		case StateFailed, StateClosed:
+			failed++
+		}
+	}
+
+	recoveryCapacity := active - m.threshold
+	if active < m.threshold {
+		recoveryCapacity = -1
+	}
+	healthy := active == 0 || active >= target
+
+	if active == 0 {
+		if relayCount >= (target+step)*m.cfg.HopCount {
+			target += step
+		} else if relayCount < target*m.cfg.HopCount {
+			target -= step
+		}
+	} else if relayCount >= (target+step)*m.cfg.HopCount && healthy && recoveryCapacity >= maxInt(1, target/2) {
+		target += step
+	} else if relayCount < target*m.cfg.HopCount || recoveryCapacity < 1 || failed > 0 && active < target {
+		target -= step
+	}
+
+	if target < minCount {
+		target = minCount
+	}
+	if target > maxCount {
+		target = maxCount
+	}
+	if target < 1 {
+		target = 1
+	}
+	return target
+}
+
+// EnableAdaptiveScaling enables bounded auto-scaling with conservative limits.
+func (m *CircuitManager) EnableAdaptiveScaling(minCircuits, maxCircuits, step int) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.cfg.AdaptiveScalingEnabled = true
+	m.cfg.AdaptiveScalingMin = minCircuits
+	m.cfg.AdaptiveScalingMax = maxCircuits
+	m.cfg.AdaptiveScalingStep = step
+	if m.cfg.AdaptiveScalingStep < 1 {
+		m.cfg.AdaptiveScalingStep = 1
+	}
+	if m.cfg.AdaptiveScalingMin < 1 {
+		m.cfg.AdaptiveScalingMin = 1
+	}
+	if m.cfg.AdaptiveScalingMax < m.cfg.AdaptiveScalingMin {
+		m.cfg.AdaptiveScalingMax = m.cfg.AdaptiveScalingMin
+	}
+}
+
+func maxInt(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }
 
 // ActivateCircuit marks a successfully established circuit active.

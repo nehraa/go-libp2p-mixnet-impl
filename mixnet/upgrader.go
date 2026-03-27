@@ -10,6 +10,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -149,6 +150,19 @@ func configuredStreamTimeout(defaultTimeout time.Duration) time.Duration {
 	return defaultTimeout
 }
 
+func adaptiveCircuitScalingEnabled() bool {
+	raw := strings.TrimSpace(os.Getenv("MIXNET_ADAPTIVE_CIRCUITS"))
+	if raw == "" {
+		return false
+	}
+	switch strings.ToLower(raw) {
+	case "1", "true", "yes", "on", "enabled":
+		return true
+	default:
+		return false
+	}
+}
+
 // NewMixnet creates a new Mixnet instance with the provided configuration, host, and routing.
 func NewMixnet(cfg *MixnetConfig, h host.Host, r routing.Routing) (*Mixnet, error) {
 	if err := cfg.Validate(); err != nil {
@@ -172,6 +186,17 @@ func NewMixnet(cfg *MixnetConfig, h host.Host, r routing.Routing) (*Mixnet, erro
 	}
 	circuitMgr := circuit.NewCircuitManager(circuitCfg)
 	circuitMgr.SetHost(h)
+	if adaptiveCircuitScalingEnabled() {
+		minCircuits := cfg.CircuitCount - 1
+		if minCircuits < 1 {
+			minCircuits = 1
+		}
+		maxCircuits := cfg.CircuitCount + 1
+		if maxCircuits > 20 {
+			maxCircuits = 20
+		}
+		circuitMgr.EnableAdaptiveScaling(minCircuits, maxCircuits, 1)
+	}
 
 	// Create CES pipeline (Req 3)
 	pipelineCfg := &ces.Config{
@@ -2294,6 +2319,36 @@ func (m *Mixnet) RecoverFromFailure(ctx context.Context, dest peer.ID) error {
 				m.circuitMgr.ActivateCircuit(newCircuit.ID)
 				circuits[i] = newCircuit
 				m.metrics.RecordCircuitSuccess()
+			}
+		}
+
+		if adaptiveTarget := m.circuitMgr.AdaptiveTargetCircuitCount(len(newRelays)); adaptiveTarget > targetCircuits {
+			targetCircuits = adaptiveTarget
+		}
+
+		if activeCount := m.circuitMgr.ActiveCircuitCount(); activeCount < targetCircuits {
+			for activeCount < targetCircuits {
+				extraCircuit, err := m.circuitMgr.BuildCircuit()
+				if err != nil {
+					break
+				}
+				if err := m.circuitMgr.EstablishCircuit(extraCircuit, dest, relay.ProtocolID); err != nil {
+					_ = m.circuitMgr.CloseCircuit(extraCircuit.ID)
+					break
+				}
+				keys, err := m.establishCircuitKeys(ctx, extraCircuit)
+				if err != nil {
+					_ = m.circuitMgr.CloseCircuit(extraCircuit.ID)
+					break
+				}
+				m.setCircuitKeys(m.circuitKeyID(extraCircuit), keys)
+				if err := m.circuitMgr.ActivateCircuit(extraCircuit.ID); err != nil {
+					_ = m.circuitMgr.CloseCircuit(extraCircuit.ID)
+					break
+				}
+				circuits = append(circuits, extraCircuit)
+				m.metrics.RecordCircuitSuccess()
+				activeCount = m.circuitMgr.ActiveCircuitCount()
 			}
 		}
 
