@@ -573,7 +573,7 @@ func (h *Handler) handleSessionSetupFrame(ctx context.Context, reader *bufio.Rea
 		recordBandwidth("in", int64(len(payload)))
 	}
 
-	baseID, mode, encryptedHeader, keyData, err := decodeSessionSetupFramePayload(payload)
+	baseID, mode, encryptedHeader, keyData, err := decodeSessionSetupFramePayloadView(payload)
 	if err != nil {
 		return err
 	}
@@ -1301,6 +1301,14 @@ func (h *Handler) forwardByAddressHeaderOnlyStreaming(ctx context.Context, reade
 }
 
 func decodeSessionSetupFramePayload(data []byte) (string, byte, []byte, []byte, error) {
+	baseID, mode, encryptedHeader, keyData, err := decodeSessionSetupFramePayloadView(data)
+	if err != nil {
+		return "", 0, nil, nil, err
+	}
+	return baseID, mode, append([]byte(nil), encryptedHeader...), append([]byte(nil), keyData...), nil
+}
+
+func decodeSessionSetupFramePayloadView(data []byte) (string, byte, []byte, []byte, error) {
 	if len(data) < 1 {
 		return "", 0, nil, nil, fmt.Errorf("session setup payload too short")
 	}
@@ -1318,14 +1326,14 @@ func decodeSessionSetupFramePayload(data []byte) (string, byte, []byte, []byte, 
 	if headerLen < 0 || len(data) < offset+headerLen+4 {
 		return "", 0, nil, nil, fmt.Errorf("invalid session setup header length")
 	}
-	encryptedHeader := append([]byte(nil), data[offset:offset+headerLen]...)
+	encryptedHeader := data[offset : offset+headerLen]
 	offset += headerLen
 	keyLen := int(binary.LittleEndian.Uint32(data[offset:]))
 	offset += 4
 	if keyLen < 0 || len(data) < offset+keyLen {
 		return "", 0, nil, nil, fmt.Errorf("invalid session setup key length")
 	}
-	keyData := append([]byte(nil), data[offset:offset+keyLen]...)
+	keyData := data[offset : offset+keyLen]
 	return baseID, mode, encryptedHeader, keyData, nil
 }
 

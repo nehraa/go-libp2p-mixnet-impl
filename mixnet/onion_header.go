@@ -28,11 +28,7 @@ func encryptOnionHeader(controlHeader []byte, c *circuit.Circuit, dest peer.ID, 
 		} else {
 			nextHop = c.Peers[i+1].String()
 		}
-		plain, err := buildHopPayload(isFinal, nextHop, current)
-		if err != nil {
-			return nil, err
-		}
-		enc, err := encryptHopPayload(hopKeys[i], plain)
+		enc, err := encryptWrappedHopPayload(hopKeys[i], isFinal, nextHop, current)
 		if err != nil {
 			return nil, err
 		}

@@ -129,3 +129,33 @@ func TestDecodeSessionDataFramePayloadViewAvoidsCloning(t *testing.T) {
 		t.Fatal("cloned shard data should remain unchanged")
 	}
 }
+
+func TestDecodeSessionSetupDeliveryPayloadViewAvoidsCloning(t *testing.T) {
+	baseID := "session-setup"
+	keyData := []byte("setup-key-data")
+
+	encoded, err := encodeSessionSetupDeliveryPayload(baseID, keyData)
+	if err != nil {
+		t.Fatalf("encodeSessionSetupDeliveryPayload() error = %v", err)
+	}
+
+	keyOffset := 1 + len(baseID) + 4
+
+	_, viewKeyData, err := decodeSessionSetupDeliveryPayloadView(encoded)
+	if err != nil {
+		t.Fatalf("decodeSessionSetupDeliveryPayloadView() error = %v", err)
+	}
+	_, clonedKeyData, err := decodeSessionSetupDeliveryPayload(encoded)
+	if err != nil {
+		t.Fatalf("decodeSessionSetupDeliveryPayload() error = %v", err)
+	}
+
+	encoded[keyOffset] ^= 0x01
+
+	if bytes.Equal(viewKeyData, keyData) {
+		t.Fatal("view key data should reflect backing-buffer mutation")
+	}
+	if !bytes.Equal(clonedKeyData, keyData) {
+		t.Fatal("cloned key data should remain unchanged")
+	}
+}

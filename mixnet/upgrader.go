@@ -1223,7 +1223,7 @@ func (m *Mixnet) handleIncomingStream(stream network.Stream) {
 		m.recordFinalDeliveryObservation(baseObs)
 		// continue
 	case msgTypeSessionSetup:
-		baseID, keyData, err := decodeSessionSetupDeliveryPayload(shardData[1:])
+		baseID, keyData, err := decodeSessionSetupDeliveryPayloadView(shardData[1:])
 		if err != nil {
 			return
 		}

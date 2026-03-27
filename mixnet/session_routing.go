@@ -135,6 +135,10 @@ func decodeSessionSetupDeliveryPayload(data []byte) (string, []byte, error) {
 	return decodeSessionCloseFramePayloadWithKey(data)
 }
 
+func decodeSessionSetupDeliveryPayloadView(data []byte) (string, []byte, error) {
+	return decodeSessionCloseFramePayloadWithKeyView(data)
+}
+
 func encodeSessionDataFramePayload(baseSessionID string, hasSeq bool, seq uint64, shard *ces.Shard, totalShards int, authTag []byte) ([]byte, error) {
 	if shard == nil {
 		return nil, fmt.Errorf("missing shard")
@@ -267,6 +271,14 @@ func encodeSessionCloseFramePayloadWithKey(baseSessionID string, keyData []byte)
 }
 
 func decodeSessionCloseFramePayloadWithKey(data []byte) (string, []byte, error) {
+	baseID, keyData, err := decodeSessionCloseFramePayloadWithKeyView(data)
+	if err != nil {
+		return "", nil, err
+	}
+	return baseID, append([]byte(nil), keyData...), nil
+}
+
+func decodeSessionCloseFramePayloadWithKeyView(data []byte) (string, []byte, error) {
 	if len(data) < 1 {
 		return "", nil, fmt.Errorf("session payload too short")
 	}
@@ -282,7 +294,7 @@ func decodeSessionCloseFramePayloadWithKey(data []byte) (string, []byte, error) 
 	if keyLen < 0 || len(data) < offset+keyLen {
 		return "", nil, fmt.Errorf("invalid session key length")
 	}
-	return baseID, append([]byte(nil), data[offset:offset+keyLen]...), nil
+	return baseID, data[offset : offset+keyLen], nil
 }
 
 func routedSessionID(baseID string, hasSeq bool, seq uint64) string {

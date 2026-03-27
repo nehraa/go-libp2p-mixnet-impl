@@ -96,3 +96,38 @@ func BenchmarkDecryptSessionShardPayloadWithKey(b *testing.B) {
 		}
 	}
 }
+
+func BenchmarkDecodeSessionSetupDeliveryPayload(b *testing.B) {
+	payload, err := encodeSessionSetupDeliveryPayload("bench-session-setup", bytes.Repeat([]byte{0x77}, 48))
+	if err != nil {
+		b.Fatalf("encodeSessionSetupDeliveryPayload() setup error = %v", err)
+	}
+
+	b.Run("copy", func(b *testing.B) {
+		b.ReportAllocs()
+		b.SetBytes(int64(len(payload)))
+		for i := 0; i < b.N; i++ {
+			baseID, keyData, err := decodeSessionSetupDeliveryPayload(payload)
+			if err != nil {
+				b.Fatalf("decodeSessionSetupDeliveryPayload() error = %v", err)
+			}
+			if baseID == "" || len(keyData) != 48 {
+				b.Fatal("unexpected session setup delivery decode result")
+			}
+		}
+	})
+
+	b.Run("view", func(b *testing.B) {
+		b.ReportAllocs()
+		b.SetBytes(int64(len(payload)))
+		for i := 0; i < b.N; i++ {
+			baseID, keyData, err := decodeSessionSetupDeliveryPayloadView(payload)
+			if err != nil {
+				b.Fatalf("decodeSessionSetupDeliveryPayloadView() error = %v", err)
+			}
+			if baseID == "" || len(keyData) != 48 {
+				b.Fatal("unexpected session setup delivery decode result")
+			}
+		}
+	})
+}

@@ -88,3 +88,41 @@ func BenchmarkReadSessionDataControlPrefix(b *testing.B) {
 		}
 	}
 }
+
+func BenchmarkDecodeSessionSetupFramePayload(b *testing.B) {
+	baseID := "bench-session-setup"
+	encryptedHeader := bytes.Repeat([]byte{0x55}, 96)
+	keyData := bytes.Repeat([]byte{0x66}, 64)
+	payload, err := encodeSessionSetupFramePayload(baseID, sessionRouteModeHeaderOnly, encryptedHeader, keyData)
+	if err != nil {
+		b.Fatalf("encodeSessionSetupFramePayload() setup error = %v", err)
+	}
+
+	b.Run("copy", func(b *testing.B) {
+		b.ReportAllocs()
+		b.SetBytes(int64(len(payload)))
+		for i := 0; i < b.N; i++ {
+			gotBaseID, gotMode, gotHeader, gotKeyData, err := decodeSessionSetupFramePayload(payload)
+			if err != nil {
+				b.Fatalf("decodeSessionSetupFramePayload() error = %v", err)
+			}
+			if gotBaseID != baseID || gotMode != sessionRouteModeHeaderOnly || len(gotHeader) != len(encryptedHeader) || len(gotKeyData) != len(keyData) {
+				b.Fatal("unexpected session setup decode result")
+			}
+		}
+	})
+
+	b.Run("view", func(b *testing.B) {
+		b.ReportAllocs()
+		b.SetBytes(int64(len(payload)))
+		for i := 0; i < b.N; i++ {
+			gotBaseID, gotMode, gotHeader, gotKeyData, err := decodeSessionSetupFramePayloadView(payload)
+			if err != nil {
+				b.Fatalf("decodeSessionSetupFramePayloadView() error = %v", err)
+			}
+			if gotBaseID != baseID || gotMode != sessionRouteModeHeaderOnly || len(gotHeader) != len(encryptedHeader) || len(gotKeyData) != len(keyData) {
+				b.Fatal("unexpected session setup decode result")
+			}
+		}
+	})
+}

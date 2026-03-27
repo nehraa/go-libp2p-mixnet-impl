@@ -78,6 +78,31 @@ func TestLayeredEncrypterRoundTrip(t *testing.T) {
 	}
 }
 
+func TestLayeredEncrypterDecryptDoesNotMutateCiphertext(t *testing.T) {
+	t.Parallel()
+
+	encrypter := NewLayeredEncrypter(3)
+	plaintext := bytes.Repeat([]byte("mixnet-layered-no-mutate-"), 24)
+	destinations := []string{"peer-a", "peer-b", "peer-c"}
+
+	ciphertext, keys, err := encrypter.Encrypt(plaintext, destinations)
+	if err != nil {
+		t.Fatalf("Encrypt() error = %v", err)
+	}
+	original := append([]byte(nil), ciphertext...)
+
+	decrypted, err := encrypter.Decrypt(ciphertext, keys)
+	if err != nil {
+		t.Fatalf("Decrypt() error = %v", err)
+	}
+	if !bytes.Equal(decrypted, plaintext) {
+		t.Fatal("layered decrypt mismatch")
+	}
+	if !bytes.Equal(ciphertext, original) {
+		t.Fatal("Decrypt() mutated ciphertext input")
+	}
+}
+
 func BenchmarkGzipCompressorDecompress(b *testing.B) {
 	compressor := NewCompressor("gzip")
 	payload := bytes.Repeat([]byte("mixnet-gzip-reader-pool-"), 256)

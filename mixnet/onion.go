@@ -35,11 +35,7 @@ func encryptOnion(payload []byte, c *circuit.Circuit, dest peer.ID, hopKeys [][]
 		} else {
 			nextHop = c.Peers[i+1].String()
 		}
-		plain, err := buildHopPayload(isFinal, nextHop, current)
-		if err != nil {
-			return nil, err
-		}
-		enc, err := encryptHopPayload(hopKeys[i], plain)
+		enc, err := encryptWrappedHopPayload(hopKeys[i], isFinal, nextHop, current)
 		if err != nil {
 			return nil, err
 		}
@@ -75,6 +71,32 @@ func encryptHopPayload(key []byte, payload []byte) ([]byte, error) {
 		return nil, err
 	}
 	return aead.Seal(out, nonce, payload, nil), nil
+}
+
+func encryptWrappedHopPayload(key []byte, isFinal byte, nextHop string, payload []byte) ([]byte, error) {
+	if len(key) != 32 {
+		return nil, fmt.Errorf("invalid hop key length")
+	}
+	if len(nextHop) > 65535 {
+		return nil, fmt.Errorf("next hop too long")
+	}
+	aead, err := chacha20poly1305.NewX(key)
+	if err != nil {
+		return nil, err
+	}
+	plainLen := 1 + 2 + len(nextHop) + len(payload)
+	nonceSize := aead.NonceSize()
+	out := make([]byte, nonceSize+plainLen+aead.Overhead())
+	nonce := out[:nonceSize]
+	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
+		return nil, err
+	}
+	plain := out[nonceSize : nonceSize+plainLen]
+	plain[0] = isFinal
+	binary.LittleEndian.PutUint16(plain[1:3], uint16(len(nextHop)))
+	copy(plain[3:], nextHop)
+	copy(plain[3+len(nextHop):], payload)
+	return aead.Seal(out[:nonceSize], nonce, plain, nil), nil
 }
 
 func encodeEncryptedFrame(circuitID string, payload []byte) ([]byte, error) {

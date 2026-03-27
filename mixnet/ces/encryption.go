@@ -221,7 +221,8 @@ func (e *LayeredEncrypter) Decrypt(ciphertext []byte, keys []*EncryptionKey) ([]
 	}
 
 	// Decrypt from outside in
-	currentData := ciphertext
+	working := append([]byte(nil), ciphertext...)
+	currentData := working
 
 	for i := 0; i < e.hopCount; i++ {
 		aead, err := chacha20poly1305.NewX(keys[i].Key)
@@ -236,7 +237,7 @@ func (e *LayeredEncrypter) Decrypt(ciphertext []byte, keys []*EncryptionKey) ([]
 
 		nonce, ciphertext := currentData[:nonceSize], currentData[nonceSize:]
 
-		plaintext, err := aead.Open(nil, nonce, ciphertext, nil)
+		plaintext, err := aead.Open(ciphertext[:0], nonce, ciphertext, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -260,8 +261,7 @@ func (e *LayeredEncrypter) Decrypt(ciphertext []byte, keys []*EncryptionKey) ([]
 		}
 
 		// Verify destination matches (optional security check)
-		extractedDest := string(plaintext[offset : offset+destLen])
-		if extractedDest != keys[i].Destination {
+		if !equalBytesString(plaintext[offset:offset+destLen], keys[i].Destination) {
 			// Continue anyway - this is a integrity check, not a security bypass
 		}
 
@@ -270,6 +270,18 @@ func (e *LayeredEncrypter) Decrypt(ciphertext []byte, keys []*EncryptionKey) ([]
 	}
 
 	return currentData, nil
+}
+
+func equalBytesString(data []byte, s string) bool {
+	if len(data) != len(s) {
+		return false
+	}
+	for i, b := range data {
+		if b != s[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // SecureEraseBytes overwrites the content of a byte slice with zeroes to remove sensitive data from memory.

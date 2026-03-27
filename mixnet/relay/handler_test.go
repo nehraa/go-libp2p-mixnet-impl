@@ -90,3 +90,42 @@ func TestAssembleRelayPayload(t *testing.T) {
 		t.Fatalf("assembled payload = %q, want %q", got, want)
 	}
 }
+
+func TestDecodeSessionSetupFramePayloadViewAvoidsCloning(t *testing.T) {
+	baseID := "session-setup"
+	encryptedHeader := []byte("encrypted-header")
+	keyData := []byte("key-material")
+
+	encoded, err := encodeSessionSetupFramePayload(baseID, sessionRouteModeHeaderOnly, encryptedHeader, keyData)
+	if err != nil {
+		t.Fatalf("encodeSessionSetupFramePayload() error = %v", err)
+	}
+
+	headerOffset := 1 + len(baseID) + 1 + 4
+	keyOffset := headerOffset + len(encryptedHeader) + 4
+
+	_, _, viewHeader, viewKeyData, err := decodeSessionSetupFramePayloadView(encoded)
+	if err != nil {
+		t.Fatalf("decodeSessionSetupFramePayloadView() error = %v", err)
+	}
+	_, _, clonedHeader, clonedKeyData, err := decodeSessionSetupFramePayload(encoded)
+	if err != nil {
+		t.Fatalf("decodeSessionSetupFramePayload() error = %v", err)
+	}
+
+	encoded[headerOffset] ^= 0x01
+	encoded[keyOffset] ^= 0x01
+
+	if bytes.Equal(viewHeader, encryptedHeader) {
+		t.Fatal("view encrypted header should reflect backing-buffer mutation")
+	}
+	if bytes.Equal(viewKeyData, keyData) {
+		t.Fatal("view key data should reflect backing-buffer mutation")
+	}
+	if !bytes.Equal(clonedHeader, encryptedHeader) {
+		t.Fatal("cloned encrypted header should remain unchanged")
+	}
+	if !bytes.Equal(clonedKeyData, keyData) {
+		t.Fatal("cloned key data should remain unchanged")
+	}
+}
