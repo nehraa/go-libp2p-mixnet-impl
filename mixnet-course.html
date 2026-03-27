@@ -1,0 +1,1202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Lib-Mix: Understanding Mixnet Privacy Transport</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,700;12..96,800&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400;1,9..40,500&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --color-bg: #FAF7F2;
+      --color-bg-warm: #F5F0E8;
+      --color-bg-code: #1E1E2E;
+      --color-text: #2C2A28;
+      --color-text-secondary: #6B6560;
+      --color-text-muted: #9E9790;
+      --color-border: #E5DFD6;
+      --color-border-light: #EEEBE5;
+      --color-surface: #FFFFFF;
+      --color-surface-warm: #FDF9F3;
+      --color-accent: #D94F30;
+      --color-accent-hover: #C4432A;
+      --color-accent-light: #FDEEE9;
+      --color-accent-muted: #E8836C;
+      --color-success: #2D8B55;
+      --color-success-light: #E8F5EE;
+      --color-error: #C93B3B;
+      --color-error-light: #FDE8E8;
+      --color-info: #2A7B9B;
+      --color-info-light: #E4F2F7;
+      --color-actor-origin: #D94F30;
+      --color-actor-relay: #2A7B9B;
+      --color-actor-dest: #7B6DAA;
+      --color-actor-circuit: #D4A843;
+      --font-display: 'Bricolage Grotesque', Georgia, serif;
+      --font-body: 'DM Sans', -apple-system, sans-serif;
+      --font-mono: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+      --text-xs: 0.75rem;
+      --text-sm: 0.875rem;
+      --text-base: 1rem;
+      --text-lg: 1.125rem;
+      --text-xl: 1.25rem;
+      --text-2xl: 1.5rem;
+      --text-3xl: 1.875rem;
+      --text-4xl: 2.25rem;
+      --text-5xl: 3rem;
+      --text-6xl: 3.75rem;
+      --space-1: 0.25rem;
+      --space-2: 0.5rem;
+      --space-3: 0.75rem;
+      --space-4: 1rem;
+      --space-5: 1.25rem;
+      --space-6: 1.5rem;
+      --space-8: 2rem;
+      --space-10: 2.5rem;
+      --space-12: 3rem;
+      --space-16: 4rem;
+      --space-20: 5rem;
+      --content-width: 800px;
+      --nav-height: 50px;
+      --radius-sm: 8px;
+      --radius-md: 12px;
+      --radius-lg: 16px;
+      --shadow-sm: 0 1px 2px rgba(44, 42, 40, 0.05);
+      --shadow-md: 0 4px 12px rgba(44, 42, 40, 0.08);
+      --shadow-lg: 0 8px 24px rgba(44, 42, 40, 0.1);
+      --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+      --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+      --duration-fast: 150ms;
+      --duration-normal: 300ms;
+      --duration-slow: 500ms;
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; scroll-snap-type: y proximity; }
+    body {
+      font-family: var(--font-body);
+      font-size: var(--text-base);
+      line-height: 1.6;
+      color: var(--color-text);
+      background: var(--color-bg);
+    }
+    .nav {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: var(--nav-height);
+      background: var(--color-surface);
+      border-bottom: 1px solid var(--color-border);
+      z-index: 100;
+      display: flex;
+      align-items: center;
+      padding: 0 var(--space-6);
+    }
+    .nav-inner { display: flex; align-items: center; justify-content: space-between; width: 100%; max-width: var(--content-width); margin: 0 auto; }
+    .nav-title { font-family: var(--font-display); font-weight: 700; font-size: var(--text-lg); color: var(--color-accent); }
+    .nav-dots { display: flex; gap: var(--space-2); }
+    .nav-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--color-border);
+      border: none;
+      cursor: pointer;
+      transition: all var(--duration-fast);
+    }
+    .nav-dot:hover, .nav-dot.active { background: var(--color-accent); transform: scale(1.2); }
+    .module {
+      min-height: 100dvh;
+      scroll-snap-align: start;
+      padding: calc(var(--nav-height) + var(--space-12)) var(--space-6) var(--space-16);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    .module:nth-child(odd) { background: var(--color-bg); }
+    .module:nth-child(even) { background: var(--color-bg-warm); }
+    .module-content { max-width: var(--content-width); width: 100%; }
+    .module-number {
+      font-family: var(--font-display);
+      font-size: var(--text-6xl);
+      font-weight: 800;
+      color: var(--color-accent);
+      opacity: 0.15;
+      line-height: 1;
+      margin-bottom: var(--space-4);
+    }
+    .module-title {
+      font-family: var(--font-display);
+      font-size: var(--text-4xl);
+      font-weight: 700;
+      margin-bottom: var(--space-6);
+      color: var(--color-text);
+    }
+    .screen { margin-bottom: var(--space-16); }
+    .screen-heading {
+      font-family: var(--font-display);
+      font-size: var(--text-2xl);
+      font-weight: 600;
+      margin-bottom: var(--space-4);
+      color: var(--color-text);
+    }
+    .screen-text { margin-bottom: var(--space-6); color: var(--color-text-secondary); }
+    .screen-text p { margin-bottom: var(--space-4); }
+    .animate-in { opacity: 0; transform: translateY(20px); transition: opacity var(--duration-slow) var(--ease-out), transform var(--duration-slow) var(--ease-out); }
+    .animate-in.visible { opacity: 1; transform: translateY(0); }
+    .hero-visual {
+      background: var(--color-surface);
+      border-radius: var(--radius-lg);
+      padding: var(--space-8);
+      margin: var(--space-8) 0;
+      box-shadow: var(--shadow-md);
+    }
+    .translation-block {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0;
+      border-radius: var(--radius-md);
+      overflow: hidden;
+      box-shadow: var(--shadow-md);
+      margin: var(--space-8) 0;
+    }
+    .translation-code {
+      background: var(--color-bg-code);
+      color: #CDD6F4;
+      padding: var(--space-6);
+      font-family: var(--font-mono);
+      font-size: var(--text-sm);
+      line-height: 1.7;
+      position: relative;
+      overflow-x: hidden;
+    }
+    .translation-code pre, .translation-code code { white-space: pre-wrap; word-break: break-word; overflow-x: hidden; }
+    .translation-english {
+      background: var(--color-surface-warm);
+      padding: var(--space-6);
+      font-size: var(--text-sm);
+      line-height: 1.7;
+      border-left: 3px solid var(--color-accent);
+    }
+    .translation-label {
+      position: absolute;
+      top: var(--space-2);
+      right: var(--space-3);
+      font-size: var(--text-xs);
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      opacity: 0.5;
+    }
+    .code-keyword { color: #CBA6F7; }
+    .code-function { color: #89B4FA; }
+    .code-string { color: #A6E3A1; }
+    .code-property { color: #F9E2AF; }
+    .code-comment { color: #6C7086; font-style: italic; }
+    .quiz-container { margin: var(--space-8) 0; }
+    .quiz-question-block { margin-bottom: var(--space-6); padding: var(--space-6); background: var(--color-surface); border-radius: var(--radius-md); border: 1px solid var(--color-border); }
+    .quiz-question { font-family: var(--font-display); font-size: var(--text-lg); font-weight: 600; margin-bottom: var(--space-4); }
+    .quiz-options { display: flex; flex-direction: column; gap: var(--space-3); }
+    .quiz-option {
+      display: flex;
+      align-items: center;
+      gap: var(--space-3);
+      padding: var(--space-3) var(--space-4);
+      border: 2px solid var(--color-border);
+      border-radius: var(--radius-sm);
+      background: var(--color-surface);
+      cursor: pointer;
+      width: 100%;
+      transition: border-color var(--duration-fast), background var(--duration-fast);
+      font-family: var(--font-body);
+      font-size: var(--text-base);
+    }
+    .quiz-option:hover { border-color: var(--color-accent-muted); }
+    .quiz-option.selected { border-color: var(--color-accent); background: var(--color-accent-light); }
+    .quiz-option.correct { border-color: var(--color-success); background: var(--color-success-light); }
+    .quiz-option.incorrect { border-color: var(--color-error); background: var(--color-error-light); }
+    .quiz-option-radio {
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      border: 2px solid var(--color-border);
+      flex-shrink: 0;
+    }
+    .quiz-option.selected .quiz-option-radio {
+      border-color: var(--color-accent);
+      background: var(--color-accent);
+      box-shadow: inset 0 0 0 3px white;
+    }
+    .quiz-feedback {
+      max-height: 0;
+      overflow: hidden;
+      opacity: 0;
+      transition: max-height var(--duration-normal), opacity var(--duration-normal);
+      margin-top: var(--space-2);
+    }
+    .quiz-feedback.show { max-height: 200px; opacity: 1; padding: var(--space-3); border-radius: var(--radius-sm); }
+    .quiz-feedback.success { background: var(--color-success-light); color: var(--color-success); }
+    .quiz-feedback.error { background: var(--color-error-light); color: var(--color-error); }
+    .quiz-check-btn, .quiz-reset-btn {
+      padding: var(--space-3) var(--space-6);
+      border-radius: var(--radius-sm);
+      font-family: var(--font-body);
+      font-weight: 600;
+      cursor: pointer;
+      transition: all var(--duration-fast);
+      margin-right: var(--space-3);
+    }
+    .quiz-check-btn { background: var(--color-accent); color: white; border: none; }
+    .quiz-check-btn:hover { background: var(--color-accent-hover); }
+    .quiz-reset-btn { background: transparent; color: var(--color-text-secondary); border: 2px solid var(--color-border); }
+    .callout-box {
+      background: var(--color-info-light);
+      border-left: 4px solid var(--color-info);
+      padding: var(--space-4) var(--space-6);
+      border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+      margin: var(--space-6) 0;
+    }
+    .callout-box.warning { background: var(--color-accent-light); border-color: var(--color-accent); }
+    .callout-box strong { display: block; margin-bottom: var(--space-2); }
+    .flow-diagram {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: var(--space-2);
+      flex-wrap: wrap;
+      margin: var(--space-8) 0;
+      padding: var(--space-8);
+      background: var(--color-surface);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-md);
+    }
+    .flow-step {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: var(--space-2);
+      padding: var(--space-4);
+      background: var(--color-surface-warm);
+      border-radius: var(--radius-md);
+      min-width: 100px;
+    }
+    .flow-step-icon {
+      width: 50px;
+      height: 50px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: var(--text-2xl);
+    }
+    .flow-arrow { font-size: var(--text-2xl); color: var(--color-text-muted); }
+    .group-chat {
+      background: var(--color-surface);
+      border-radius: var(--radius-lg);
+      padding: var(--space-6);
+      margin: var(--space-8) 0;
+      box-shadow: var(--shadow-md);
+    }
+    .chat-message {
+      display: flex;
+      gap: var(--space-3);
+      margin-bottom: var(--space-4);
+    }
+    .chat-avatar {
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: var(--text-lg);
+      flex-shrink: 0;
+    }
+    .chat-bubble {
+      padding: var(--space-3) var(--space-4);
+      border-radius: var(--radius-md);
+      max-width: 80%;
+      font-size: var(--text-sm);
+    }
+    .chat-bubble.origin { background: var(--color-actor-origin); color: white; align-self: flex-start; }
+    .chat-bubble.relay { background: var(--color-actor-relay); color: white; align-self: flex-end; }
+    .chat-bubble.dest { background: var(--color-actor-dest); color: white; align-self: flex-start; }
+    .pattern-card {
+      background: var(--color-surface);
+      border-radius: var(--radius-md);
+      padding: var(--space-6);
+      margin: var(--space-4) 0;
+      box-shadow: var(--shadow-sm);
+      border-left: 4px solid var(--color-accent);
+    }
+    .pattern-card-title { font-family: var(--font-display); font-weight: 700; font-size: var(--text-lg); margin-bottom: var(--space-2); }
+    .pattern-card-desc { color: var(--color-text-secondary); font-size: var(--text-sm); }
+    .tooltip {
+      text-decoration: underline;
+      text-decoration-style: dashed;
+      text-decoration-color: var(--color-accent);
+      cursor: pointer;
+      position: relative;
+    }
+    .tooltip::after {
+      content: attr(data-tip);
+      position: fixed;
+      background: var(--color-text);
+      color: white;
+      padding: var(--space-2) var(--space-3);
+      border-radius: var(--radius-sm);
+      font-size: var(--text-xs);
+      max-width: 250px;
+      z-index: 1000;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity var(--duration-fast);
+    }
+    .tooltip:hover::after { opacity: 1; }
+    @media (max-width: 768px) {
+      .translation-block { grid-template-columns: 1fr; }
+      .translation-english { border-left: none; border-top: 3px solid var(--color-accent); }
+      .flow-diagram { flex-direction: column; }
+      .flow-arrow { transform: rotate(90deg); }
+      .module-title { font-size: var(--text-3xl); }
+    }
+  </style>
+</head>
+<body>
+  <nav class="nav">
+    <div class="nav-inner">
+      <span class="nav-title">Lib-Mix Course</span>
+      <div class="nav-dots">
+        <button class="nav-dot active" data-target="m1" aria-label="Module 1"></button>
+        <button class="nav-dot" data-target="m2" aria-label="Module 2"></button>
+        <button class="nav-dot" data-target="m3" aria-label="Module 3"></button>
+        <button class="nav-dot" data-target="m4" aria-label="Module 4"></button>
+        <button class="nav-dot" data-target="m5" aria-label="Module 5"></button>
+        <button class="nav-dot" data-target="m6" aria-label="Module 6"></button>
+      </div>
+    </div>
+  </nav>
+
+  <!-- MODULE 1: What is Mixnet? -->
+  <section class="module" id="m1">
+    <div class="module-content">
+      <span class="module-number">01</span>
+      <h1 class="module-title">What is Mixnet?</h1>
+
+      <div class="screen animate-in">
+        <h2 class="screen-heading">The Privacy Problem</h2>
+        <div class="screen-text">
+          <p>When you send data over the internet, anyone watching the network can see <strong>who you're talking to</strong>, <strong>when</strong>, and <strong>how much</strong>. This is called metadata leakage.</p>
+          <p>Imagine sending a letter through the postal system, but every envelope had your return address, the recipient's address, and a timestamp visible on the outside. Even if the letter's contents are sealed in an envelope, the outside information reveals a lot.</p>
+        </div>
+        <div class="callout-box">
+          <strong>Why should you care?</strong>
+          Metadata can reveal your communication patterns, social networks, and even your location — even when the actual message content is encrypted. For journalists, activists, or anyone sensitive to surveillance, this is a serious problem.
+        </div>
+      </div>
+
+      <div class="screen animate-in">
+        <h2 class="screen-heading">How Mixnet Solves It</h2>
+        <div class="screen-text">
+          <p>Lib-Mix is a mixnet implementation for libp2p that adds privacy by:</p>
+        </div>
+        <div class="pattern-card animate-in">
+          <div class="pattern-card-title">Route through multiple relays</div>
+          <div class="pattern-card-desc">Your data doesn't go directly to the destination. It bounces through several relay nodes, each only knowing the previous and next hop.</div>
+        </div>
+        <div class="pattern-card animate-in">
+          <div class="pattern-card-title">Layer encryption (onion routing)</div>
+          <div class="pattern-card-desc">Like peeling an onion, each relay peels off one encryption layer to learn only where to forward next — never knowing the original sender.</div>
+        </div>
+        <div class="pattern-card animate-in">
+          <div class="pattern-card-title">Payload sharding (optional)</div>
+          <div class="pattern-card-desc">Large messages can be split into multiple shards that travel over different paths, making it even harder to correlate traffic.</div>
+        </div>
+        <div class="pattern-card animate-in">
+          <div class="pattern-card-title">Padding and timing obfuscation</div>
+          <div class="pattern-card-desc">Random padding hides the actual message size, and timing variations prevent traffic analysis.</div>
+        </div>
+      </div>
+
+      <div class="screen animate-in">
+        <h2 class="screen-heading">Your First Interaction</h2>
+        <div class="screen-text">
+          <p>When you use Mixnet, here's what happens when you send a message:</p>
+        </div>
+        <div class="hero-visual">
+          <div class="flow-diagram">
+            <div class="flow-step">
+              <div class="flow-step-icon" style="background: var(--color-actor-origin);">Y</div>
+              <span>You (Origin)</span>
+            </div>
+            <span class="flow-arrow">-</span>
+            <div class="flow-step">
+              <div class="flow-step-icon" style="background: var(--color-actor-relay);">1</div>
+              <span>Relay 1</span>
+            </div>
+            <span class="flow-arrow">-</span>
+            <div class="flow-step">
+              <div class="flow-step-icon" style="background: var(--color-actor-relay);">2</div>
+              <span>Relay 2</span>
+            </div>
+            <span class="flow-arrow">-</span>
+            <div class="flow-step">
+              <div class="flow-step-icon" style="background: var(--color-actor-relay);">3</div>
+              <span>Relay 3</span>
+            </div>
+            <span class="flow-arrow">-</span>
+            <div class="flow-step">
+              <div class="flow-step-icon" style="background: var(--color-actor-dest);">D</div>
+              <span>Destination</span>
+            </div>
+          </div>
+        </div>
+        <div class="callout-box">
+          <strong>The key insight:</strong>
+          No single relay knows both who sent the message AND who receives it. Each relay only sees its immediate neighbors in the chain.
+        </div>
+      </div>
+
+      <div class="screen animate-in">
+        <h2 class="screen-heading">Quiz: Mixnet Basics</h2>
+        <div class="quiz-container">
+          <div class="quiz-question-block" data-question="q1-1" data-correct="option-b">
+            <h3 class="quiz-question">Why is metadata leakage a problem even when message content is encrypted?</h3>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="option-a" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>Encryption doesn't work, so the content is visible anyway</span>
+              </button>
+              <button class="quiz-option" data-value="option-b" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>Metadata reveals WHO, WHEN, and HOW MUCH, revealing communication patterns</span>
+              </button>
+              <button class="quiz-option" data-value="option-c" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>Encrypted messages are always larger than unencrypted ones</span>
+              </button>
+            </div>
+            <div class="quiz-feedback" id="q1-1-feedback"></div>
+          </div>
+          <button class="quiz-check-btn" onclick="checkQuiz('m1')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('m1')">Try Again</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- MODULE 2: Meet the Actors -->
+  <section class="module" id="m2">
+    <div class="module-content">
+      <span class="module-number">02</span>
+      <h1 class="module-title">Meet the Actors</h1>
+
+      <div class="screen animate-in">
+        <h2 class="screen-heading">The Cast of Characters</h2>
+        <div class="screen-text">
+          <p>Every software system has components that work together. In Mixnet, there are four main actors:</p>
+        </div>
+        <div class="pattern-card animate-in">
+          <div class="pattern-card-title">Origin (You)</div>
+          <div class="pattern-card-desc">The sender. You create data, encrypt it in layers, and send it into the mixnet. Located in upgrader.go — the main Mixnet type.</div>
+        </div>
+        <div class="pattern-card animate-in">
+          <div class="pattern-card-title">Relays</div>
+          <div class="pattern-card-desc">Intermediate nodes that forward your encrypted data. They don't know who sent it or where it ultimately goes. Implemented in the relay/ package.</div>
+        </div>
+        <div class="pattern-card animate-in">
+          <div class="pattern-card-title">Destination</div>
+          <div class="pattern-card-desc">The final recipient. They receive the fully decrypted message and deliver it to the application.</div>
+        </div>
+        <div class="pattern-card animate-in">
+          <div class="pattern-card-title">Circuit Manager</div>
+          <div class="pattern-card-desc">The organizer. It builds and manages the relay paths (circuits) that data travels through. Located in circuit/manager.go.</div>
+        </div>
+      </div>
+
+      <div class="screen animate-in">
+        <h2 class="screen-heading">How They Talk to Each Other</h2>
+        <div class="group-chat">
+          <div class="chat-message">
+            <div class="chat-avatar" style="background: var(--color-actor-origin);">Y</div>
+            <div class="chat-bubble origin">I want to send a message to the destination. First, I need to find some relays to route through.</div>
+          </div>
+          <div class="chat-message">
+            <div class="chat-avatar" style="background: var(--color-actor-circuit);">C</div>
+            <div class="chat-bubble origin">Circuit Manager here! I'll use the relay discovery system to find available relays and build a circuit.</div>
+          </div>
+          <div class="chat-message">
+            <div class="chat-avatar" style="background: var(--color-actor-relay);">1</div>
+            <div class="chat-bubble relay">Hey, I'm Relay 1! The circuit manager connected me to the origin. I'll forward whatever comes my way to the next relay.</div>
+          </div>
+          <div class="chat-message">
+            <div class="chat-avatar" style="background: var(--color-actor-relay);">2</div>
+            <div class="chat-bubble relay">I'm Relay 2. I don't know who sent this or where it's going. I just decrypt one layer, find the next hop, and pass it on.</div>
+          </div>
+          <div class="chat-message">
+            <div class="chat-avatar" style="background: var(--color-actor-dest);">D</div>
+            <div class="chat-bubble dest">Destination here! I've decrypted all layers and can now deliver the original message to the recipient app.</div>
+          </div>
+        </div>
+        <div class="callout-box">
+          <strong>Zero-knowledge forwarding:</strong>
+          This is the key property. Relays perform zero-knowledge forwarding — they forward data without knowing the original sender or final destination. Each relay only knows its immediate neighbors.
+        </div>
+      </div>
+
+      <div class="screen animate-in">
+        <h2 class="screen-heading">Where Each Component Lives</h2>
+        <div class="hero-visual">
+          <pre style="font-family: var(--font-mono); font-size: var(--text-xs); line-height: 1.8; white-space: pre-wrap;">
+mixnet/
+├── upgrader.go          - Origin/Destination (Mixnet type)
+├── stream.go            - Stream API (OpenStream, AcceptStream)
+├── relay/handler.go     - Relay forwarding logic
+├── circuit/
+│   ├── circuit.go       - Circuit data structure
+│   └── manager.go       - Circuit lifecycle management
+├── onion.go             - Layered encryption
+├── onion_header.go      - Header format and parsing
+├── privacy_transport.go - Privacy packet format
+├── ces/                 - Compress-Encrypt-Shard pipeline
+└── discovery/           - Relay discovery and selection</pre>
+        </div>
+        <div class="callout-box warning">
+          <strong>Do not worry about memorizing!</strong>
+          You do not need to remember file names. The point is: when you are working with an AI and need to modify behavior, you now know WHERE to look.
+        </div>
+      </div>
+
+      <div class="screen animate-in">
+        <h2 class="screen-heading">Quiz: The Actors</h2>
+        <div class="quiz-container">
+          <div class="quiz-question-block" data-question="q2-1" data-correct="option-b">
+            <h3 class="quiz-question">If you wanted to change how relays are selected, which file would you likely modify?</h3>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="option-a" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>upgrader.go (the main Mixnet type)</span>
+              </button>
+              <button class="quiz-option" data-value="option-b" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>discovery/relay_discovery.go (relay selection)</span>
+              </button>
+              <button class="quiz-option" data-value="option-c" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>onion.go (encryption)</span>
+              </button>
+            </div>
+            <div class="quiz-feedback" id="q2-1-feedback"></div>
+          </div>
+          <button class="quiz-check-btn" onclick="checkQuiz('m2')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('m2')">Try Again</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- MODULE 3: How Data Travels -->
+  <section class="module" id="m3">
+    <div class="module-content">
+      <span class="module-number">03</span>
+      <h1 class="module-title">How Data Travels</h1>
+
+      <div class="screen animate-in">
+        <h2 class="screen-heading">The Journey of a Message</h2>
+        <div class="screen-text">
+          <p>Let us trace what actually happens when you send a message through Mixnet:</p>
+        </div>
+        <div class="hero-visual">
+          <div class="flow-diagram" style="flex-direction: column; align-items: flex-start;">
+            <div class="flow-step" style="flex-direction: row; gap: var(--space-4);">
+              <span style="color: var(--color-accent); font-weight: bold;">1. Discover Relays</span>
+              <span>Find available relay nodes using libp2p routing</span>
+            </div>
+            <div class="flow-step" style="flex-direction: row; gap: var(--space-4);">
+              <span style="color: var(--color-accent); font-weight: bold;">2. Build Circuit</span>
+              <span>Create path: Origin - Relay1 - Relay2 - Relay3 - Destination</span>
+            </div>
+            <div class="flow-step" style="flex-direction: row; gap: var(--space-4);">
+              <span style="color: var(--color-accent); font-weight: bold;">3. Encrypt Layers</span>
+              <span>Wrap message in onion encryption: each layer has next-hop info</span>
+            </div>
+            <div class="flow-step" style="flex-direction: row; gap: var(--space-4);">
+              <span style="color: var(--color-accent); font-weight: bold;">4. Add Privacy</span>
+              <span>Apply padding (hides size), optionally shard (splits message)</span>
+            </div>
+            <div class="flow-step" style="flex-direction: row; gap: var(--space-4);">
+              <span style="color: var(--color-accent); font-weight: bold;">5. Send Through Relays</span>
+              <span>Each relay peels one layer, learns next hop, forwards remaining</span>
+            </div>
+            <div class="flow-step" style="flex-direction: row; gap: var(--space-4);">
+              <span style="color: var(--color-accent); font-weight: bold;">6. Destination Reconstructs</span>
+              <span>Final relay peels last layer, delivers original message</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="screen animate-in">
+        <h2 class="screen-heading">Looking at Real Code: The Onion Header</h2>
+        <div class="screen-text">
+          <p>This is how Mixnet builds the layered encryption header. Each layer contains instructions for the next relay:</p>
+        </div>
+        <div class="translation-block animate-in">
+          <div class="translation-code">
+            <span class="translation-label">CODE</span>
+            <pre><code><span class="code-comment">// Build layers from destination back to origin</span>
+current := <span class="code-function">buildHopPayload</span>(isFinal, nextHop, current)
+
+<span class="code-comment">// Each relay gets: next_hop + encrypted_payload</span>
+<span class="code-keyword">for</span> i := <span class="code-keyword">len</span>(c.Peers) - 1; i >= 0; i-- {
+  isFinal := i == <span class="code-keyword">len</span>(c.Peers)-1
+  nextHop := <span class="code-string">""</span>
+  <span class="code-keyword">if</span> !isFinal {
+    nextHop = c.Peers[i+1].<span class="code-function">String</span>()
+  }
+  plain, err := <span class="code-function">buildHopPayload</span>(isFinal, nextHop, current)
+  enc, err := <span class="code-function">encryptHopPayload</span>(hopKeys[i], plain)
+  current = enc  <span class="code-comment">// Wrap this layer</span>
+}</code></pre>
+          </div>
+          <div class="translation-english">
+            <span class="translation-label">PLAIN ENGLISH</span>
+            <div class="translation-lines">
+              <p class="tl">The code builds onion layers BACKWARDS, starting from the destination and wrapping toward the origin.</p>
+              <p class="tl">For the last relay (before destination), "isFinal" is true because it is the final hop.</p>
+              <p class="tl">Each layer gets the next hop address. Relay 2 knows to send to Relay 3, etc.</p>
+              <p class="tl">"buildHopPayload" creates the instructions: "forward this to next address".</p>
+              <p class="tl">Then "encryptHopPayload" wraps those instructions in encryption using the relay key.</p>
+              <p class="tl">This loops backward through all relays, creating layers like wrapping paper.</p>
+            </div>
+          </div>
+        </div>
+        <div class="callout-box">
+          <strong>Why backwards?</strong>
+          Starting from the destination and working backward ensures each relay can peel its layer and find the correct next hop. It is like writing instructions for each person in a chain by starting with the last person.
+        </div>
+      </div>
+
+      <div class="screen animate-in">
+        <h2 class="screen-heading">The Privacy Packet Format</h2>
+        <div class="screen-text">
+          <p>Mixnet uses a specific packet format to carry routing information:</p>
+        </div>
+        <div class="translation-block animate-in">
+          <div class="translation-code">
+            <span class="translation-label">CODE</span>
+            <pre><code><span class="code-comment">// PrivacyShardHeader - what goes in each packet</span>
+<span class="code-keyword">type</span> PrivacyShardHeader <span class="code-keyword">struct</span> {
+  SessionID   []byte  <span class="code-comment">// ID to reassemble shards</span>
+  ShardIndex uint32  <span class="code-comment">// Which shard is this?</span>
+  TotalShards uint32  <span class="code-comment">// How many total?</span>
+  HasKeys     bool    <span class="code-comment">// Keys included?</span>
+  KeyData     []byte  <span class="code-comment">// Encrypted key material</span>
+  AuthTag     []byte  <span class="code-comment">// Authenticity proof</span>
+  Padding     []byte  <span class="code-comment">// Random bytes for size hiding</span>
+}</code></pre>
+          </div>
+          <div class="translation-english">
+            <span class="translation-label">PLAIN ENGLISH</span>
+            <div class="translation-lines">
+              <p class="tl">SessionID: A tracking number that lets the destination know which shards belong together.</p>
+              <p class="tl">ShardIndex: "I am the 2nd piece of 5 total pieces" - helps reconstruct in order.</p>
+              <p class="tl">TotalShards: "There are 5 pieces total" - knows when reconstruction is complete.</p>
+              <p class="tl">HasKeys: Is this the first shard that carries encryption keys?</p>
+              <p class="tl">KeyData: The decryption keys (encrypted so relays cannot read them).</p>
+              <p class="tl">AuthTag: A cryptographic proof that this shard was not tampered with.</p>
+              <p class="tl">Padding: Random garbage data to hide the real message size from observers.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="screen animate-in">
+        <h2 class="screen-heading">Quiz: Data Flow</h2>
+        <div class="quiz-container">
+          <div class="quiz-question-block" data-question="q3-1" data-correct="option-a">
+            <h3 class="quiz-question">Why does the onion encryption build layers backwards (from destination to origin)?</h3>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="option-a" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>So each relay can peel its layer and find the next hop without knowing the full path</span>
+              </button>
+              <button class="quiz-option" data-value="option-b" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>Because it is more computationally efficient that way</span>
+              </button>
+              <button class="quiz-option" data-value="option-c" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>It is a historical artifact from the original Tor design</span>
+              </button>
+            </div>
+            <div class="quiz-feedback" id="q3-1-feedback"></div>
+          </div>
+          <button class="quiz-check-btn" onclick="checkQuiz('m3')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('m3')">Try Again</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- MODULE 4: Circuit Construction -->
+  <section class="module" id="m4">
+    <div class="module-content">
+      <span class="module-number">04</span>
+      <h1 class="module-title">Circuit Construction</h1>
+
+      <div class="screen animate-in">
+        <h2 class="screen-heading">What is a Circuit?</h2>
+        <div class="screen-text">
+          <p>A circuit is a pre-established path through relays. Think of it like booking a flight with connections - you know the entire route in advance: Origin - Relay1 - Relay2 - Relay3 - Destination.</p>
+        </div>
+        <div class="hero-visual">
+          <pre style="font-family: var(--font-mono); font-size: var(--text-sm); line-height: 1.8;">
+type Circuit struct {
+    ID      string    // Unique identifier for this circuit
+    Peers   []peer.ID // Ordered relays: [Relay1, Relay2, Relay3]
+    State   CircuitState // pending - building - active - failed/closed
+    CreatedAt time.Time
+    UpdatedAt time.Time
+}</pre>
+        </div>
+        <div class="callout-box">
+          <strong>Why pre-build circuits?</strong>
+          Building circuits takes time (discovering relays, establishing connections). By building them once and reusing them for multiple messages, Mixnet saves significant latency.
+        </div>
+      </div>
+
+      <div class="screen animate-in">
+        <h2 class="screen-heading">Circuit States</h2>
+        <div class="screen-text">
+          <p>Circuits have a lifecycle - they go from created to active to eventually closed:</p>
+        </div>
+        <div class="hero-visual">
+          <div class="flow-diagram">
+            <div class="flow-step">
+              <div class="flow-step-icon" style="background: var(--color-text-muted);">?</div>
+              <span>Pending</span>
+              <span style="font-size: var(--text-xs);">Allocated but not built</span>
+            </div>
+            <span class="flow-arrow">-</span>
+            <div class="flow-step">
+              <div class="flow-step-icon" style="background: var(--color-actor-circuit);">B</div>
+              <span>Building</span>
+              <span style="font-size: var(--text-xs);">Establishing connections</span>
+            </div>
+            <span class="flow-arrow">-</span>
+            <div class="flow-step">
+              <div class="flow-step-icon" style="background: var(--color-success);">A</div>
+              <span>Active</span>
+              <span style="font-size: var(--text-xs);">Ready for traffic</span>
+            </div>
+            <span class="flow-arrow">-</span>
+            <div class="flow-step">
+              <div class="flow-step-icon" style="background: var(--color-error);">X</div>
+              <span>Failed/Closed</span>
+              <span style="font-size: var(--text-xs);">No longer usable</span>
+            </div>
+          </div>
+        </div>
+        <div class="pattern-card animate-in">
+          <div class="pattern-card-title">Circuit Manager</div>
+          <div class="pattern-card-desc">The CircuitManager (in circuit/manager.go) handles building circuits, checking their health via heartbeats, and recovering from failures by building new circuits.</div>
+        </div>
+      </div>
+
+      <div class="screen animate-in">
+        <h2 class="screen-heading">Session Routing: An Optimization</h2>
+        <div class="screen-text">
+          <p>Mixnet has an optional optimization called session routing that reduces overhead for repeated messages:</p>
+        </div>
+        <div class="callout-box">
+          <strong>Without session routing:</strong>
+          Every message carries all the routing and setup information needed - like bringing your passport for every single flight.
+        </div>
+        <div class="callout-box">
+          <strong>With session routing (EnableSessionRouting=true):</strong>
+          The first message on a circuit sends a setup frame with full routing info. Subsequent messages just send a smaller data frame that reuses the cached route.
+        </div>
+        <div class="callout-box warning">
+          <strong>Security trade-off:</strong>
+          Session routing is faster but introduces a subtle risk. A malicious relay can potentially inject data for a known session since relays cache the route state. The destination still verifies end-to-end encryption.
+        </div>
+      </div>
+
+      <div class="screen animate-in">
+        <h2 class="screen-heading">Quiz: Circuits</h2>
+        <div class="quiz-container">
+          <div class="quiz-question-block" data-question="q4-1" data-correct="option-c">
+            <h3 class="quiz-question">What happens when a circuit fails?</h3>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="option-a" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>The entire Mixnet shuts down</span>
+              </button>
+              <button class="quiz-option" data-value="option-b" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>Messages are lost forever</span>
+              </button>
+              <button class="quiz-option" data-value="option-c" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>The CircuitManager builds a new circuit and retries</span>
+              </button>
+            </div>
+            <div class="quiz-feedback" id="q4-1-feedback"></div>
+          </div>
+          <button class="quiz-check-btn" onclick="checkQuiz('m4')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('m4')">Try Again</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- MODULE 5: Privacy Features -->
+  <section class="module" id="m5">
+    <div class="module-content">
+      <span class="module-number">05</span>
+      <h1 class="module-title">Privacy Features</h1>
+
+      <div class="screen animate-in">
+        <h2 class="screen-heading">Padding: Hiding Message Size</h2>
+        <div class="screen-text">
+          <p>If an observer sees you send exactly 1,337 bytes every 5 minutes, they can correlate that with your encrypted messages. Padding adds random bytes to hide the real size:</p>
+        </div>
+        <div class="translation-block animate-in">
+          <div class="translation-code">
+            <span class="translation-label">CODE</span>
+            <pre><code><span class="code-comment">// PrivacyPaddingConfig</span>
+<span class="code-keyword">type</span> PrivacyPaddingConfig <span class="code-keyword">struct</span> {
+  Enabled  bool   <span class="code-comment">// Turn padding on/off</span>
+  MinBytes int   <span class="code-comment">// Minimum padding (default 16)</span>
+  MaxBytes int   <span class="code-comment">// Maximum padding (default 256)</span>
+}</code></pre>
+          </div>
+          <div class="translation-english">
+            <span class="translation-label">PLAIN ENGLISH</span>
+            <div class="translation-lines">
+              <p class="tl">Enabled: Whether to use padding at all.</p>
+              <p class="tl">MinBytes: Add at least this many random bytes (default 16).</p>
+              <p class="tl">MaxBytes: Add at most this many random bytes (default 256).</p>
+              <p class="tl">So a 100-byte message might become 116-356 bytes. Observers cannot tell the original size.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="screen animate-in">
+        <h2 class="screen-heading">Sharding: Splitting for Defense in Depth</h2>
+        <div class="screen-text">
+          <p>For extra privacy, Mixnet can split a large message into multiple shards that travel over different circuits:</p>
+        </div>
+        <div class="group-chat">
+          <div class="chat-message">
+            <div class="chat-avatar" style="background: var(--color-actor-origin);">Y</div>
+            <div class="chat-bubble origin">I have a 1MB file to send. Instead of one big packet, I will split it into 5 shards of 200KB each.</div>
+          </div>
+          <div class="chat-message">
+            <div class="chat-avatar" style="background: var(--color-actor-circuit);">C</div>
+            <div class="chat-bubble origin">Circuit Manager: I will build 5 different circuits through different relay combinations!</div>
+          </div>
+          <div class="chat-message">
+            <div class="chat-avatar" style="background: var(--color-actor-relay);">1</div>
+            <div class="chat-bubble relay">Relay 1: I only see Shard 1 going to Circuit A. I have no idea about Shards 2-5.</div>
+          </div>
+          <div class="chat-message">
+            <div class="chat-avatar" style="background: var(--color-actor-dest);">D</div>
+            <div class="chat-bubble dest">Destination: I receive all 5 shards and use the SessionID to reassemble them into the original file.</div>
+          </div>
+        </div>
+        <div class="callout-box">
+          <strong>Why does this help?</strong>
+          An observer would need to correlate traffic across multiple circuits to even know a single message was sent. It is much harder than watching one path.
+        </div>
+      </div>
+
+      <div class="screen animate-in">
+        <h2 class="screen-heading">Auth Tags: Proving Integrity</h2>
+        <div class="screen-text">
+          <p>How do you know the data was not tampered with mid-transit? Auth tags:</p>
+        </div>
+        <div class="pattern-card animate-in">
+          <div class="pattern-card-title">XChaCha20-Poly1305</div>
+          <div class="pattern-card-desc">Mixnet uses XChaCha20-Poly1305 for authenticated encryption. This provides both confidentiality (nobody can read it) and authenticity (nobody can modify it without detection).</div>
+        </div>
+        <div class="callout-box">
+          <strong>The auth tag is like a wax seal</strong>
+          Just like a wax seal on an envelope proves it was not opened, an auth tag proves the message was not modified. If anyone tries to alter the encrypted data, the auth tag verification fails at the destination.
+        </div>
+      </div>
+
+      <div class="screen animate-in">
+        <h2 class="screen-heading">Quiz: Privacy Features</h2>
+        <div class="quiz-container">
+          <div class="quiz-question-block" data-question="q5-1" data-correct="option-b">
+            <h3 class="quiz-question">If you are sending sensitive data and want maximum privacy, which features would you enable?</h3>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="option-a" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>Just padding, to keep message sizes hidden</span>
+              </button>
+              <button class="quiz-option" data-value="option-b" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>Padding + sharding + auth tags (all of them)</span>
+              </button>
+              <button class="quiz-option" data-value="option-c" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>Just auth tags, to prove the message was not tampered with</span>
+              </button>
+            </div>
+            <div class="quiz-feedback" id="q5-1-feedback"></div>
+          </div>
+          <button class="quiz-check-btn" onclick="checkQuiz('m5')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('m5')">Try Again</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- MODULE 6: The Big Picture -->
+  <section class="module" id="m6">
+    <div class="module-content">
+      <span class="module-number">06</span>
+      <h1 class="module-title">The Big Picture</h1>
+
+      <div class="screen animate-in">
+        <h2 class="screen-heading">Putting It All Together</h2>
+        <div class="screen-text">
+          <p>Let us see how all the pieces fit together in a complete message flow:</p>
+        </div>
+        <div class="hero-visual">
+          <div class="flow-diagram" style="flex-direction: column; align-items: flex-start;">
+            <div class="flow-step" style="flex-direction: row; gap: var(--space-4); width: 100%;">
+              <div style="background: var(--color-actor-origin); color: white; padding: var(--space-2) var(--space-4); border-radius: var(--radius-sm); font-weight: bold;">Origin</div>
+              <div>1) Call NewMixnet() - validates config, initializes subsystems</div>
+            </div>
+            <div class="flow-step" style="flex-direction: row; gap: var(--space-4); width: 100%;">
+              <div style="background: var(--color-actor-origin); color: white; padding: var(--space-2) var(--space-4); border-radius: var(--radius-sm); font-weight: bold;">Origin</div>
+              <div>2) Call OpenStream or Send - discovers relays, builds circuit</div>
+            </div>
+            <div class="flow-step" style="flex-direction: row; gap: var(--space-4); width: 100%;">
+              <div style="background: var(--color-actor-origin); color: white; padding: var(--space-2) var(--space-4); border-radius: var(--radius-sm); font-weight: bold;">Origin</div>
+              <div>3) Payload: compress - encrypt - pad - (optionally) shard</div>
+            </div>
+            <div class="flow-step" style="flex-direction: row; gap: var(--space-4); width: 100%;">
+              <div style="background: var(--color-actor-relay); color: white; padding: var(--space-2) var(--space-4); border-radius: var(--radius-sm); font-weight: bold;">Relay</div>
+              <div>4) Each relay: decrypt ONE layer - extract next hop - forward payload</div>
+            </div>
+            <div class="flow-step" style="flex-direction: row; gap: var(--space-4); width: 100%;">
+              <div style="background: var(--color-actor-dest); color: white; padding: var(--space-2) var(--space-4); border-radius: var(--radius-sm); font-weight: bold;">Dest</div>
+              <div>5) Final relay delivers to destination - reconstruct (if sharded) - deliver via stream</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="screen animate-in">
+        <h2 class="screen-heading">Configuration: What Can You Tune?</h2>
+        <div class="hero-visual">
+          <pre style="font-family: var(--font-mono); font-size: var(--text-xs); line-height: 1.8; white-space: pre-wrap;">
+MixnetConfig {
+  // Circuit setup
+  HopCount: 3,          // How many relays in each circuit
+  CircuitCount: 3,      // How many parallel circuits
+
+  // Encryption
+  EncryptionMode: "full" | "header-only",
+
+  // Privacy features
+  EnableSessionRouting: false,
+  SessionRouteIdleTimeout: 30s,
+
+  // Padding
+  Padding: { Enabled: true, MinBytes: 16, MaxBytes: 256 },
+
+  // Selection
+  SelectionMode: "rtt" | "random" | "hybrid",
+
+  // Limits
+  MaxBandwidth: 100MB,
+  MaxCircuits: 100,
+}</pre>
+        </div>
+      </div>
+
+      <div class="screen animate-in">
+        <h2 class="screen-heading">What You Have Learned</h2>
+        <div class="screen-text">
+          <p>Congratulations! You have learned about:</p>
+        </div>
+        <div class="pattern-card animate-in">
+          <div class="pattern-card-title">What Mixnet is and why metadata privacy matters</div>
+          <div class="pattern-card-desc">The problem: network observers can see who you communicate with, even when content is encrypted. Mixnet solves this by routing through multiple relays with layered encryption.</div>
+        </div>
+        <div class="pattern-card animate-in">
+          <div class="pattern-card-title">The main components (Origin, Relays, Destination, Circuit Manager)</div>
+          <div class="pattern-card-desc">Each has a specific role: origin sends, relays forward with zero-knowledge, destination delivers, circuit manager builds and manages paths.</div>
+        </div>
+        <div class="pattern-card animate-in">
+          <div class="pattern-card-title">How data flows through the network</div>
+          <div class="pattern-card-desc">Discover - Build Circuit - Encrypt Layers - Add Privacy - Forward Through Relays - Reconstruct at Destination.</div>
+        </div>
+        <div class="pattern-card animate-in">
+          <div class="pattern-card-title">Circuit lifecycle and session routing</div>
+          <div class="pattern-card-desc">Circuits go through states (pending-building-active-closed). Session routing optimizes repeated messages but has a small security trade-off.</div>
+        </div>
+        <div class="pattern-card animate-in">
+          <div class="pattern-card-title">Privacy features (padding, sharding, auth tags)</div>
+          <div class="pattern-card-desc">Padding hides message size. Sharding splits data across circuits. Auth tags prove integrity. Each can be configured independently.</div>
+        </div>
+      </div>
+
+      <div class="screen animate-in">
+        <h2 class="screen-heading">Final Quiz: Full Understanding</h2>
+        <div class="quiz-container">
+          <div class="quiz-question-block" data-question="q6-1" data-correct="option-b">
+            <h3 class="quiz-question">You want to add a feature where Mixnet automatically selects relays based on their latency. Where would you look?</h3>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="option-a" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>onion.go (for encryption changes)</span>
+              </button>
+              <button class="quiz-option" data-value="option-b" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>discovery/relay_discovery.go or circuit/manager.go</span>
+              </button>
+              <button class="quiz-option" data-value="option-c" onclick="selectOption(this)">
+                <div class="quiz-option-radio"></div>
+                <span>relay/handler.go (relay code)</span>
+              </button>
+            </div>
+            <div class="quiz-feedback" id="q6-1-feedback"></div>
+          </div>
+          <button class="quiz-check-btn" onclick="checkQuiz('m6')">Check Answers</button>
+          <button class="quiz-reset-btn" onclick="resetQuiz('m6')">Try Again</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <script>
+    // Intersection Observer for scroll animations
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          entry.target.classList.add('visible');
+          // Update nav dots
+          const moduleId = entry.target.closest('.module').id;
+          document.querySelectorAll('.nav-dot').forEach(dot => {
+            dot.classList.toggle('active', dot.dataset.target === moduleId);
+          });
+        }
+      });
+    }, { rootMargin: '0px 0px -10% 0px', threshold: 0.1 });
+
+    document.querySelectorAll('.animate-in').forEach(el => observer.observe(el));
+
+    // Navigation dots
+    document.querySelectorAll('.nav-dot').forEach(dot => {
+      dot.addEventListener('click', () => {
+        document.getElementById(dot.dataset.target).scrollIntoView({ behavior: 'smooth' });
+      });
+    });
+
+    // Quiz functions - using safe DOM methods
+    window.selectOption = function(btn) {
+      const block = btn.closest('.quiz-question-block');
+      block.querySelectorAll('.quiz-option').forEach(o => o.classList.remove('selected'));
+      btn.classList.add('selected');
+    };
+
+    const explanations = {
+      'q1-1': {
+        'option-a': 'This is incorrect - encryption does work for content. The issue is the metadata (who, when, how much) that remains visible.',
+        'option-b': 'Exactly! Even with encrypted content, metadata reveals communication patterns, timing, and volume.',
+        'option-c': 'This is incorrect - encrypted messages do not necessarily have larger sizes than unencrypted ones.'
+      },
+      'q2-1': {
+        'option-a': 'Close, but the upgrader orchestrates the overall flow. Relay selection would be in the discovery or circuit package.',
+        'option-b': 'Correct! The discovery package handles finding and selecting relays.',
+        'option-c': 'No, onion.go handles encryption, not relay selection.'
+      },
+      'q3-1': {
+        'option-a': 'Perfect! Building backwards ensures each relay can peel its layer and find the next hop without knowing the full path - key to zero-knowledge forwarding.',
+        'option-b': 'Not quite - the backwards construction is about security properties, not computational efficiency.',
+        'option-c': 'Not exactly - the backwards construction is a fundamental design choice for onion routing.'
+      },
+      'q4-1': {
+        'option-a': 'No! The CircuitManager handles failures gracefully.',
+        'option-b': 'Messages are not lost - Mixnet has retry and recovery mechanisms.',
+        'option-c': 'Correct! The CircuitManager detects failures and builds replacement circuits.'
+      },
+      'q5-1': {
+        'option-a': 'Padding alone helps with size hiding, but does not provide the full privacy picture.',
+        'option-b': 'Exactly! All three features work together: padding hides size, sharding makes correlation harder, and auth tags ensure integrity.',
+        'option-c': 'Auth tags are important, but without padding and sharding, you are missing key privacy features.'
+      },
+      'q6-1': {
+        'option-a': 'No, onion.go handles encryption, not relay selection.',
+        'option-b': 'Correct! The discovery package handles finding relays, and the circuit manager handles building circuits.',
+        'option-c': 'The relay handler handles forwarding, not selection of which relays to use.'
+      }
+    };
+
+    window.checkQuiz = function(sectionId) {
+      const container = document.getElementById(sectionId);
+      const questions = container.querySelectorAll('.quiz-question-block');
+      let correct = 0;
+
+      questions.forEach(q => {
+        const selected = q.querySelector('.quiz-option.selected');
+        const feedback = q.querySelector('.quiz-feedback');
+        const correctValue = q.dataset.correct;
+
+        if (!selected) {
+          feedback.textContent = 'Pick an answer first!';
+          feedback.className = 'quiz-feedback show warning';
+          return;
+        }
+
+        if (selected.dataset.value === correctValue) {
+          correct++;
+          selected.classList.add('correct');
+          // Use safe textContent
+          const strong = document.createElement('strong');
+          strong.textContent = 'Exactly! ';
+          feedback.textContent = '';
+          feedback.appendChild(strong);
+          feedback.appendChild(document.createTextNode(explanations[q.dataset.question][correctValue]));
+          feedback.className = 'quiz-feedback show success';
+        } else {
+          selected.classList.add('incorrect');
+          q.querySelector('[data-value="' + correctValue + '"]').classList.add('correct');
+          // Use safe textContent
+          const strong = document.createElement('strong');
+          strong.textContent = 'Not quite. ';
+          feedback.textContent = '';
+          feedback.appendChild(strong);
+          feedback.appendChild(document.createTextNode(explanations[q.dataset.question][selected.dataset.value]));
+          feedback.className = 'quiz-feedback show error';
+        }
+
+        q.querySelectorAll('.quiz-option').forEach(o => o.disabled = true);
+      });
+    };
+
+    window.resetQuiz = function(sectionId) {
+      const container = document.getElementById(sectionId);
+      const questions = container.querySelectorAll('.quiz-question-block');
+
+      questions.forEach(q => {
+        q.querySelectorAll('.quiz-option').forEach(o => {
+          o.classList.remove('selected', 'correct', 'incorrect');
+          o.disabled = false;
+        });
+        const feedback = q.querySelector('.quiz-feedback');
+        feedback.className = 'quiz-feedback';
+        feedback.textContent = '';
+      });
+    };
+  </script>
+</body>
+</html>
