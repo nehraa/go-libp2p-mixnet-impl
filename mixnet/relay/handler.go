@@ -1611,7 +1611,7 @@ func decryptHopPayload(key []byte, payload []byte) ([]byte, error) {
 	}
 	nonce := payload[:nonceSize]
 	ciphertext := payload[nonceSize:]
-	return aead.Open(nil, nonce, ciphertext, nil)
+	return aead.Open(ciphertext[:0], nonce, ciphertext, nil)
 }
 
 func parseHopPayload(plaintext []byte) (bool, string, []byte, error) {

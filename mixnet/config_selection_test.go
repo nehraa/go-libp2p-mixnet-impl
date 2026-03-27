@@ -3,8 +3,6 @@ package mixnet
 import "testing"
 
 func TestSetSelectionModeNormalizesAliases(t *testing.T) {
-	t.Parallel()
-
 	cfg := DefaultConfig()
 	if err := cfg.SetSelectionMode(SelectionMode("sc")); err != nil {
 		t.Fatalf("SetSelectionMode(sc) error = %v", err)
@@ -15,8 +13,6 @@ func TestSetSelectionModeNormalizesAliases(t *testing.T) {
 }
 
 func TestValidateCanonicalizesExtendedSelectionModes(t *testing.T) {
-	t.Parallel()
-
 	cfg := &MixnetConfig{
 		HopCount:       2,
 		CircuitCount:   3,
@@ -32,8 +28,6 @@ func TestValidateCanonicalizesExtendedSelectionModes(t *testing.T) {
 }
 
 func TestValidateRejectsUnknownSelectionMode(t *testing.T) {
-	t.Parallel()
-
 	cfg := &MixnetConfig{
 		HopCount:       2,
 		CircuitCount:   3,
