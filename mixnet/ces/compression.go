@@ -169,11 +169,10 @@ func (c *snappyCompressor) Compress(data []byte) ([]byte, error) {
 	if len(data) == 0 {
 		return []byte{}, nil
 	}
-	compressed := snappy.Encode(nil, data)
-	out := make([]byte, 1+len(compressed))
+	out := make([]byte, 1+snappy.MaxEncodedLen(len(data)))
 	out[0] = AlgoSnappy
-	copy(out[1:], compressed)
-	return out, nil
+	encoded := snappy.Encode(out[1:], data)
+	return out[:1+len(encoded)], nil
 }
 
 // Decompress validates the header and decompresses data using Snappy.
@@ -186,7 +185,12 @@ func (c *snappyCompressor) Decompress(data []byte) ([]byte, error) {
 		return nil, fmt.Errorf("unexpected algorithm ID: want %d, got %d", AlgoSnappy, data[0])
 	}
 
-	return snappy.Decode(nil, data[1:])
+	decodedLen, err := snappy.DecodedLen(data[1:])
+	if err != nil {
+		return nil, err
+	}
+	out := make([]byte, decodedLen)
+	return snappy.Decode(out, data[1:])
 }
 
 // ErrInvalidAlgorithm is returned when an unsupported compression algorithm is requested.

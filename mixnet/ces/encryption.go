@@ -82,39 +82,24 @@ func (e *LayeredEncrypter) Encrypt(plaintext []byte, destinations []string) ([]b
 	currentData := plaintext
 
 	for i := e.hopCount - 1; i >= 0; i-- {
-		// Create header: [dest_len(2)][dest_len_varint][dest_bytes][data]
-		header := make([]byte, 2+binary.MaxVarintLen64+len(keys[i].Destination))
-		binary.LittleEndian.PutUint16(header[0:2], uint16(len(keys[i].Destination)))
-		offset := 2
-		// Write destination length as varint (for future use)
-		varintBuf := make([]byte, binary.MaxVarintLen64)
-		n := binary.PutUvarint(varintBuf, uint64(len(keys[i].Destination)))
-		offset += n
-		copy(header[offset:], keys[i].Destination)
-		offset += len(keys[i].Destination)
-
-		// Prepend header to data
-		payload := make([]byte, offset+len(currentData))
-		copy(payload, header[:offset])
-		copy(payload[offset:], currentData)
-
 		// Encrypt with ChaCha20-Poly1305 - SAME CIPHER as libp2p Noise uses
 		aead, err := chacha20poly1305.NewX(keys[i].Key)
 		if err != nil {
 			return nil, nil, err
 		}
 
-		// Generate random nonce (24 bytes for XChaCha20-Poly1305)
-		nonce := make([]byte, aead.NonceSize())
+		destLen := len(keys[i].Destination)
+		payloadLen := layeredPayloadLen(destLen, len(currentData))
+		out := make([]byte, aead.NonceSize()+payloadLen+aead.Overhead())
+		nonce := out[:aead.NonceSize()]
 		if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
 			return nil, nil, err
 		}
+		fillLayerPayload(out[aead.NonceSize():aead.NonceSize()+payloadLen], keys[i].Destination, currentData)
 
 		// Reuse the output prefix for the nonce to avoid an extra copy when
 		// carrying ciphertext to the next onion layer.
-		out := make([]byte, 0, len(nonce)+len(payload)+aead.Overhead())
-		out = append(out, nonce...)
-		currentData = aead.Seal(out, nonce, payload, nil)
+		currentData = aead.Seal(out[:aead.NonceSize()], nonce, out[aead.NonceSize():aead.NonceSize()+payloadLen], nil)
 
 		// Increment nonce for next use
 		keys[i].Nonce++
@@ -205,10 +190,27 @@ func cryptoWorkerCount(units int) int {
 	if workers < 1 {
 		workers = 1
 	}
+	if units < workers*2 {
+		return 1
+	}
 	if workers > units {
 		return units
 	}
 	return workers
+}
+
+func layeredPayloadLen(destLen int, dataLen int) int {
+	var varintBuf [binary.MaxVarintLen64]byte
+	return 2 + binary.PutUvarint(varintBuf[:], uint64(destLen)) + destLen + dataLen
+}
+
+func fillLayerPayload(dst []byte, destination string, data []byte) int {
+	binary.LittleEndian.PutUint16(dst[:2], uint16(len(destination)))
+	pos := 2
+	pos += binary.PutUvarint(dst[pos:], uint64(len(destination)))
+	pos += copy(dst[pos:], destination)
+	pos += copy(dst[pos:], data)
+	return pos
 }
 
 // Decrypt removes one or more layers of onion encryption using the provided keys.

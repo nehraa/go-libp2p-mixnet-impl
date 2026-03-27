@@ -35,6 +35,36 @@ func BenchmarkGzipDecompress(b *testing.B) {
 	}
 }
 
+func BenchmarkSnappyCompress(b *testing.B) {
+	compressor := NewCompressor("snappy")
+	payload := bytes.Repeat([]byte("mixnet-snappy-benchmark-"), 512)
+
+	b.ReportAllocs()
+	b.SetBytes(int64(len(payload)))
+	for i := 0; i < b.N; i++ {
+		if _, err := compressor.Compress(payload); err != nil {
+			b.Fatalf("Compress() error = %v", err)
+		}
+	}
+}
+
+func BenchmarkSnappyDecompress(b *testing.B) {
+	compressor := NewCompressor("snappy")
+	payload := bytes.Repeat([]byte("mixnet-snappy-benchmark-"), 512)
+	compressed, err := compressor.Compress(payload)
+	if err != nil {
+		b.Fatalf("Compress() setup error = %v", err)
+	}
+
+	b.ReportAllocs()
+	b.SetBytes(int64(len(payload)))
+	for i := 0; i < b.N; i++ {
+		if _, err := compressor.Decompress(compressed); err != nil {
+			b.Fatalf("Decompress() error = %v", err)
+		}
+	}
+}
+
 func BenchmarkSharderReconstruct(b *testing.B) {
 	sharder := NewSharder(6, 4)
 	payload := bytes.Repeat([]byte("mixnet-reconstruct-benchmark-"), 512)
