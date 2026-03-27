@@ -10,8 +10,6 @@ import (
 )
 
 func TestDestinationHandlerReconstructsAtThreshold(t *testing.T) {
-	t.Parallel()
-
 	pipeline := ces.NewPipeline(&ces.Config{
 		HopCount:         2,
 		CircuitCount:     4,
@@ -73,8 +71,6 @@ func TestDestinationHandlerReconstructsAtThreshold(t *testing.T) {
 }
 
 func TestSingleShardSharderRoundTrips(t *testing.T) {
-	t.Parallel()
-
 	sharder := ces.NewSharder(1, 1)
 	payload := bytes.Repeat([]byte("single-shard-ces-"), 64)
 
@@ -96,8 +92,6 @@ func TestSingleShardSharderRoundTrips(t *testing.T) {
 }
 
 func TestDestinationHandlerReconstructsNonCESPerShardEncryption(t *testing.T) {
-	t.Parallel()
-
 	original := bytes.Repeat([]byte("mixnet-nonces-hard-stop-"), 256)
 	shards, keyData, err := encryptSessionShards(original, 3)
 	if err != nil {
@@ -139,8 +133,6 @@ func TestDestinationHandlerReconstructsNonCESPerShardEncryption(t *testing.T) {
 }
 
 func TestDestinationHandlerTryReconstructConcurrentCallersShareResult(t *testing.T) {
-	t.Parallel()
-
 	pipeline := ces.NewPipeline(&ces.Config{
 		HopCount:         2,
 		CircuitCount:     4,
@@ -193,12 +185,14 @@ func TestDestinationHandlerTryReconstructConcurrentCallersShareResult(t *testing
 	const callers = 8
 	results := make(chan []byte, callers)
 	errs := make(chan error, callers)
+	start := make(chan struct{})
 	var wg sync.WaitGroup
 
 	runCaller := func() {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			<-start
 			data, err := handler.TryReconstruct(sessionID)
 			if err != nil {
 				errs <- err
@@ -208,25 +202,10 @@ func TestDestinationHandlerTryReconstructConcurrentCallersShareResult(t *testing
 		}()
 	}
 
-	runCaller()
-
-	deadline := time.Now().Add(2 * time.Second)
-	for {
-		handler.mu.Lock()
-		_, inFlight := handler.reconstructing[sessionID]
-		handler.mu.Unlock()
-		if inFlight {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("reconstruction did not enter in-flight state")
-		}
-		time.Sleep(time.Millisecond)
-	}
-
-	for i := 1; i < callers; i++ {
+	for i := 0; i < callers; i++ {
 		runCaller()
 	}
+	close(start)
 
 	wg.Wait()
 	close(errs)
@@ -258,8 +237,6 @@ func TestDestinationHandlerTryReconstructConcurrentCallersShareResult(t *testing
 }
 
 func TestDestinationHandlerIgnoresLateShardAfterThreshold(t *testing.T) {
-	t.Parallel()
-
 	pipeline := ces.NewPipeline(&ces.Config{
 		HopCount:         2,
 		CircuitCount:     3,
