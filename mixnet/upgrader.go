@@ -1821,10 +1821,13 @@ func (h *DestinationHandler) unregisterSession(sessionID string) {
 	sessionID = baseSessionID(sessionID)
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	keepCompletedUntil := time.Time{}
+	if h.sessionCompletedLocked(sessionID) {
+		keepCompletedUntil = time.Now().Add(duplicateSessionTombstoneTTL(h.timeout))
+	}
 	delete(h.reconstructing, sessionID)
 	delete(h.keys, sessionID)
 	delete(h.keyData, sessionID)
-	delete(h.sessionDone, sessionID)
 	if t, ok := h.timers[sessionID]; ok {
 		t.Stop()
 		delete(h.timers, sessionID)
@@ -1835,7 +1838,28 @@ func (h *DestinationHandler) unregisterSession(sessionID string) {
 		t.Stop()
 		delete(h.setupTimers, sessionID)
 	}
+	if !keepCompletedUntil.IsZero() {
+		h.sessionDone[sessionID] = keepCompletedUntil
+		expiry := keepCompletedUntil
+		time.AfterFunc(time.Until(expiry), func() {
+			h.mu.Lock()
+			defer h.mu.Unlock()
+			if current, ok := h.sessionDone[sessionID]; ok && current.Equal(expiry) {
+				delete(h.sessionDone, sessionID)
+			}
+		})
+	}
 	h.closeSessionLocked(sessionID)
+}
+
+func duplicateSessionTombstoneTTL(timeout time.Duration) time.Duration {
+	if timeout <= 0 {
+		return time.Second
+	}
+	if timeout > 5*time.Second {
+		return 5 * time.Second
+	}
+	return timeout
 }
 
 func (h *DestinationHandler) deliverSessionData(sessionID string, data []byte) {
