@@ -320,7 +320,7 @@ The following requirements were added during implementation to address real-worl
 1. THE Lib_Mix_Protocol SHALL accept configuration parameters `header_padding_enabled`, `header_padding_min`, and `header_padding_max`
 2. WHEN `header_padding_enabled` is true, THE Lib_Mix_Protocol SHALL add random padding to privacy headers
 3. THE padding size SHALL be uniformly random between `header_padding_min` and `header_padding_max` bytes
-4. THE Lib_Mix_Protocol SHALL default to `header_padding_enabled = false` for backward compatibility
+4. THE Lib_Mix_Protocol SHALL default to `header_padding_enabled = true` for better privacy protection by default
 5. THE Lib_Mix_Protocol SHALL default to `header_padding_max = 256` bytes when enabled
 
 **Implementation Rationale**: Without header padding, header size reveals hop count and relay position, enabling traffic analysis attacks.
@@ -368,7 +368,7 @@ The following requirements were added during implementation to address real-worl
 1. THE Lib_Mix_Protocol SHALL accept a configuration parameter `max_jitter` in milliseconds
 2. WHEN `max_jitter` > 0, THE Lib_Mix_Protocol SHALL add a random delay between 0 and `max_jitter` ms before transmitting each shard
 3. THE Lib_Mix_Protocol SHALL use a cryptographically secure random number generator for jitter
-4. THE Lib_Mix_Protocol SHALL default to `max_jitter = 0` (no jitter) for backward compatibility
+4. THE Lib_Mix_Protocol SHALL default to `max_jitter = 50` (50 ms of timing noise for correlation resistance by default)
 5. THE jitter SHALL be applied independently to each shard transmission
 
 **Implementation Rationale**: Without jitter, observers can correlate shards across circuits by arrival time, breaking unlinkability.

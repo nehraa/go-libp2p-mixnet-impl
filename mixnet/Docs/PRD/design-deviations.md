@@ -29,7 +29,10 @@ type Mixnet struct {
 }
 
 func (m *Mixnet) Send(ctx context.Context, dest peer.ID, data []byte) error
-func (m *Mixnet) Receive(ctx context.Context) ([]byte, error)
+func (m *Mixnet) SendWithSession(ctx context.Context, dest peer.ID, data []byte, sessionID string) error
+func (m *Mixnet) ReceiveHandler() func(network.Stream)
+func (m *Mixnet) OpenStream(ctx context.Context, dest peer.ID) (*MixStream, error)
+func (m *Mixnet) AcceptStream(ctx context.Context) (*MixStream, error)
 ```
 
 ### Rationale
@@ -61,28 +64,38 @@ struct KeyManager {
 ```
 
 ### Actual Implementation
-The implementation uses XChaCha20-Poly1305 directly without full Noise Protocol Framework:
+The implementation uses Noise XX for key exchange and XChaCha20-Poly1305 for
+per-hop CES encryption:
 
 ```go
-// Uses golang.org/x/crypto/chacha20poly1305 directly
+// Key exchange uses Noise XX via the flynn/noise library
+var keyExchangeCipherSuite = noise.NewCipherSuite(noise.DH25519, noise.CipherChaChaPoly, noise.HashSHA256)
+
+hs, _ := noise.NewHandshakeState(noise.Config{
+    CipherSuite:   keyExchangeCipherSuite,
+    Pattern:       noise.HandshakeXX,
+    Initiator:     true,
+    StaticKeypair: kp,
+})
+
+// Per-hop CES encryption uses XChaCha20-Poly1305 directly
 cipher, err := chacha20poly1305.NewX(key)
 ```
 
 ### Rationale
 **Why the deviation:**
-1. **Complexity**: Full Noise Protocol Framework is overkill for this use case
-2. **Performance**: Direct AEAD cipher is faster than Noise handshake overhead
-3. **Dependencies**: Reduces dependency on external Noise libraries
-4. **Simplicity**: Easier to audit and understand
+1. **Focused use of Noise**: Noise XX is used for the initial key exchange handshake where its mutual authentication properties are needed, but per-hop layered encryption uses XChaCha20-Poly1305 directly for simplicity and performance.
+2. **Performance**: Direct AEAD for per-hop encryption avoids repeated Noise handshake overhead on the data path.
+3. **Clarity**: Separating key exchange (Noise XX) from bulk encryption (AEAD) makes the security model easier to audit.
 
 **Trade-offs:**
-- ✅ Better performance
-- ✅ Simpler code
-- ✅ Fewer dependencies
-- ❌ Less standardized (Noise is a well-known protocol)
-- ❌ Manual key management (Noise handles this automatically)
+- ✅ Authenticated key exchange via Noise XX
+- ✅ Faster per-hop encryption via direct AEAD
+- ✅ Clear separation of concerns
+- ❌ Two cryptographic subsystems to understand
+- ❌ Manual key lifecycle for hop keys after Noise key exchange
 
-**Could it have been done as designed?** Yes, but the Noise Protocol Framework adds complexity without significant security benefits for this use case. The current approach uses the same underlying primitives (ChaCha20-Poly1305) but with simpler key management.
+**Could it have been done as designed?** Partially done as designed: Noise XX is used for key exchange. Per-hop encryption uses the same underlying primitive (ChaCha20-Poly1305) but bypasses the Noise transport layer for data, which is a practical trade-off.
 
 ---
 
@@ -312,32 +325,47 @@ enum LibMixError {
 ```
 
 ### Actual Implementation
-The implementation uses Go's standard error handling:
+The implementation uses a structured `MixnetError` type with error codes and
+factory constructors:
 
 ```go
-func (m *Mixnet) Send(ctx context.Context, dest peer.ID, data []byte) error {
-    if err := m.validateConfig(); err != nil {
-        return fmt.Errorf("config validation failed: %w", err)
-    }
-    // ...
+type MixnetError struct {
+    Code    string
+    Message string
+    Cause   error
 }
+
+func ErrConfigInvalid(msg string) *MixnetError
+func ErrDiscoveryFailed(msg string) *MixnetError
+func ErrCircuitFailed(msg string) *MixnetError
+func ErrEncryptionFailed(msg string) *MixnetError
+func ErrCompressionFailed(msg string) *MixnetError
+func ErrShardingFailed(msg string) *MixnetError
+func ErrTransportFailed(msg string) *MixnetError
+func ErrTimeout(msg string) *MixnetError
+func ErrResourceExhausted(msg string) *MixnetError
+func ErrProtocolError(msg string) *MixnetError
 ```
+
+Helper functions `IsRetryable` and `IsFatal` allow callers to classify errors
+programmatically.
 
 ### Rationale
 **Why the deviation:**
-1. **Go Idioms**: Go uses simple error values, not enum-based error types
-2. **Error Wrapping**: Go 1.13+ error wrapping provides context
-3. **Simplicity**: Easier to understand and use
-4. **Compatibility**: Works with standard Go error handling patterns
+1. **Go Idioms**: `MixnetError` implements the `error` interface and supports Go 1.13+ `errors.Is`/`errors.As` via `Unwrap`, keeping Go-idiomatic usage while adding structure.
+2. **Error Classification**: Error codes provide the same categorization as the Rust enum but without requiring exhaustive type switches.
+3. **Context Propagation**: The `WithCause` method chains underlying errors for debugging without losing the high-level category.
+4. **Retry Logic**: `IsRetryable` and `IsFatal` give callers a simple decision path without knowing every error code.
 
 **Trade-offs:**
-- ✅ Idiomatic Go
-- ✅ Simpler
-- ✅ Better error context (wrapping)
-- ❌ Less structured (no error categories)
-- ❌ Harder to programmatically distinguish error types
+- ✅ Structured error codes for programmatic handling
+- ✅ Idiomatic Go error wrapping
+- ✅ Built-in retry/fatal classification
+- ✅ Context propagation via `WithCause`
+- ❌ More types than plain `fmt.Errorf` wrapping
+- ❌ Callers must import the package to use the typed constructors
 
-**Could it have been done as designed?** Yes, but it would be un-idiomatic Go. The current approach is more Go-like.
+**Could it have been done as designed?** The Rust-style enum has no direct Go equivalent, but `MixnetError` achieves the same categorization with factory constructors and error codes. The result is closer to the original intent than plain `fmt.Errorf` wrapping.
 
 ---
 
@@ -430,13 +458,13 @@ const (
 | Deviation | Reason | Could Be Done As Designed? |
 |-----------|--------|----------------------------|
 | Mixnet struct vs StreamUpgrader | Go idioms, simpler state management | Yes, but more boilerplate |
-| Direct AEAD vs Noise Protocol | Performance, simplicity | Yes, but more complex |
+| Noise XX key exchange + direct AEAD | Focused Noise use for auth, direct AEAD for speed | Partially done as designed |
 | Sequential circuit construction | Better error handling | Yes, but harder cleanup |
 | Length-prefixed framing | Message boundaries required | No, design was underspecified |
 | Configurable erasure threshold | Flexibility | Yes, but less flexible |
 | Hybrid relay selection | Better privacy | Yes, but weaker privacy |
 | Per-session keys | Concurrent streams | Yes, but less efficient |
-| Go error handling | Go idioms | Yes, but un-idiomatic |
+| Structured MixnetError | Go idioms + error classification | Closer to original intent than plain errors |
 | Atomic metrics | Performance | Yes, but slower |
 | Message type system | Explicit signaling | Design was underspecified |
 

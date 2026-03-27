@@ -39,7 +39,7 @@ mixnet/
 | `onion.go` | Builds and unwraps per-hop onion routing state used to forward traffic through the relay chain. |
 | `onion_header.go` | Encodes and decodes the on-wire privacy header fields carried alongside each shard. |
 | `padding.go` | Implements header padding and payload size padding strategies used to reduce traffic-analysis signals. |
-| `privacy.go` | Defines privacy logging controls and the manager that applies those controls. |
+| `privacy.go` | Defines privacy logging controls, the `PrivacyManager`, and helpers such as `ZeroKnowledgeLog` and `VerifyPrivacyInvariants`. |
 | `privacy_transport.go` | Defines the transport message format, shard metadata, and destination-side shard parsing/reassembly helpers. |
 | `production_sanity_test.go` | End-to-end regression suite that validates configuration, crypto, routing, discovery, circuit recovery, and stream behavior in one coordinated workflow. |
 | `reconstruction_threshold_test.go` | Locks down threshold derivation and shard-reconstruction edge cases. |
