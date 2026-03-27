@@ -1155,6 +1155,7 @@ func shardEvenly(data []byte, total int) ([]*ces.Shard, error) {
 		return nil, fmt.Errorf("invalid shard count: %d", total)
 	}
 	parts := make([]*ces.Shard, total)
+	backing := make([]ces.Shard, total)
 	base := len(data) / total
 	remainder := len(data) % total
 	offset := 0
@@ -1170,7 +1171,8 @@ func shardEvenly(data []byte, total int) ([]*ces.Shard, error) {
 		// Expose immutable views into the source buffer instead of cloning each
 		// segment. This keeps header-only and full-onion sender paths from paying
 		// an extra full-payload copy before the shard ever hits the wire.
-		parts[i] = &ces.Shard{Index: i, Data: data[offset:end]}
+		backing[i] = ces.Shard{Index: i, Data: data[offset:end]}
+		parts[i] = &backing[i]
 		offset = end
 	}
 	return parts, nil
