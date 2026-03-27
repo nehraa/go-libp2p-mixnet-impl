@@ -138,10 +138,12 @@ func (s *Sharder) Shard(data []byte) ([]*Shard, error) {
 	}
 
 	result := make([]*Shard, s.totalShards)
+	backing := make([]Shard, s.totalShards)
 	for i := 0; i < s.totalShards; i++ {
 		cp := make([]byte, len(shards[i]))
 		copy(cp, shards[i])
-		result[i] = &Shard{Index: i, Data: cp}
+		backing[i] = Shard{Index: i, Data: cp}
+		result[i] = &backing[i]
 	}
 	return result, nil
 }

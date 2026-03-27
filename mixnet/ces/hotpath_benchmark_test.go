@@ -82,3 +82,16 @@ func BenchmarkSharderReconstruct(b *testing.B) {
 		}
 	}
 }
+
+func BenchmarkSharderShard(b *testing.B) {
+	sharder := NewSharder(6, 4)
+	payload := bytes.Repeat([]byte("mixnet-reconstruct-benchmark-"), 512)
+
+	b.ReportAllocs()
+	b.SetBytes(int64(len(payload)))
+	for i := 0; i < b.N; i++ {
+		if _, err := sharder.Shard(payload); err != nil {
+			b.Fatalf("Shard() error = %v", err)
+		}
+	}
+}
