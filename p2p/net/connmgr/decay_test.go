@@ -101,10 +101,15 @@ func TestCustomFunctions(t *testing.T) {
 	_ = tag2.Bump(id, 1000)
 	_ = tag3.Bump(id, 1000)
 
-	waitForTag(t, mgr, id)
-
-	// no decay has occurred yet, so score must be 3000.
-	require.Equal(t, 3000, mgr.GetTagInfo(id).Value)
+	// Wait for the background tracker goroutine to observe all three initial
+	// bumps before asserting the undecayed aggregate score.
+	eventuallyEqual(t, func() int {
+		ti := mgr.GetTagInfo(id)
+		if ti == nil {
+			return 0
+		}
+		return ti.Value
+	}, 3000)
 
 	// only tag3 should tick.
 	mockClock.Add(50 * time.Millisecond)
