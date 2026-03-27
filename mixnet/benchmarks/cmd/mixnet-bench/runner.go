@@ -53,6 +53,14 @@ const (
 	measurementCES    = "ces-pipeline"
 	measurementLocal  = "local-session"
 
+	selectionModeRTT            mixnet.SelectionMode = "rtt"
+	selectionModeRandom         mixnet.SelectionMode = "random"
+	selectionModeHybrid         mixnet.SelectionMode = "hybrid"
+	selectionModeLOR            mixnet.SelectionMode = "lor"
+	selectionModeSingleCircle   mixnet.SelectionMode = "single-circle"
+	selectionModeMultipleCircle mixnet.SelectionMode = "multiple-circle"
+	selectionModeRegionalMixnet mixnet.SelectionMode = "regional-mixnet"
+
 	directProtocol             protocol.ID = "/mixnet-bench/direct/1.0.0"
 	directKeyProtocol          protocol.ID = "/mixnet-bench/direct-key/1.0.0"
 	benchmarkChunkSize                     = 256 * 1024
@@ -594,12 +602,36 @@ func buildScenarios(opts suiteOptions) []scenario {
 	}
 
 	if hasGroup(groupSelectionModes) {
+		selectionStrategies := []struct {
+			suffix string
+			label  string
+			mode   mixnet.SelectionMode
+			rand   float64
+		}{
+			{suffix: "rtt", label: "RTT", mode: selectionModeRTT, rand: 0.3},
+			{suffix: "random", label: "random", mode: selectionModeRandom, rand: 1.0},
+			{suffix: "hybrid", label: "hybrid", mode: selectionModeHybrid, rand: 0.5},
+			{suffix: "lor", label: "LOR", mode: selectionModeLOR, rand: 0.35},
+			{suffix: "single-circle", label: "single circle", mode: selectionModeSingleCircle, rand: 0.15},
+			{suffix: "multiple-circle", label: "multiple circle", mode: selectionModeMultipleCircle, rand: 0.25},
+			{suffix: "regional-mixnet", label: "regional mixnet", mode: selectionModeRegionalMixnet, rand: 0.2},
+		}
 		for _, mode := range []string{"header-only", "full"} {
-			out = append(out,
-				scenario{ID: fmt.Sprintf("%s-selection-rtt", mode), Category: groupSelectionModes, Label: fmt.Sprintf("%s selection RTT", modeLabel(mode)), Mode: mode, Measurement: measurementMixnet, HopCount: 2, CircuitCount: 4, UseCESPipeline: true, Compression: "gzip", SelectionMode: mixnet.SelectionModeRTT, RandomnessFactor: 0.3},
-				scenario{ID: fmt.Sprintf("%s-selection-random", mode), Category: groupSelectionModes, Label: fmt.Sprintf("%s selection random", modeLabel(mode)), Mode: mode, Measurement: measurementMixnet, HopCount: 2, CircuitCount: 4, UseCESPipeline: true, Compression: "gzip", SelectionMode: mixnet.SelectionModeRandom, RandomnessFactor: 1.0},
-				scenario{ID: fmt.Sprintf("%s-selection-hybrid", mode), Category: groupSelectionModes, Label: fmt.Sprintf("%s selection hybrid", modeLabel(mode)), Mode: mode, Measurement: measurementMixnet, HopCount: 2, CircuitCount: 4, UseCESPipeline: true, Compression: "gzip", SelectionMode: mixnet.SelectionModeHybrid, RandomnessFactor: 0.5},
-			)
+			for _, strat := range selectionStrategies {
+				out = append(out, scenario{
+					ID:               fmt.Sprintf("%s-selection-%s", mode, strat.suffix),
+					Category:         groupSelectionModes,
+					Label:            fmt.Sprintf("%s selection %s", modeLabel(mode), strat.label),
+					Mode:             mode,
+					Measurement:      measurementMixnet,
+					HopCount:         2,
+					CircuitCount:     4,
+					UseCESPipeline:   true,
+					Compression:      "gzip",
+					SelectionMode:    strat.mode,
+					RandomnessFactor: strat.rand,
+				})
+			}
 		}
 	}
 
@@ -2395,7 +2427,7 @@ func fallbackCompression(value string) string {
 
 func defaultSelectionMode(mode mixnet.SelectionMode) mixnet.SelectionMode {
 	if mode == "" {
-		return mixnet.SelectionModeRTT
+		return selectionModeRTT
 	}
 	return mode
 }

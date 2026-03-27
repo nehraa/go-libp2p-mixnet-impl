@@ -3,6 +3,7 @@ package mixnet
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 )
@@ -22,7 +23,51 @@ const (
 	SelectionModeRandom SelectionMode = "random"
 	// SelectionModeHybrid selects relays using a combination of RTT and randomness.
 	SelectionModeHybrid SelectionMode = "hybrid"
+	// SelectionModeLOR excludes one random candidate before latency-driven selection.
+	SelectionModeLOR SelectionMode = "lor"
+	// SelectionModeSingleCircle aggressively minimizes latency across the full candidate pool.
+	SelectionModeSingleCircle SelectionMode = "single-circle"
+	// SelectionModeMultipleCircle balances paths across latency circles.
+	SelectionModeMultipleCircle SelectionMode = "multiple-circle"
+	// SelectionModeRegionalMixnet prefers fast ingress hops with a more remote exit.
+	SelectionModeRegionalMixnet SelectionMode = "regional-mixnet"
 )
+
+var supportedSelectionModes = []SelectionMode{
+	SelectionModeRTT,
+	SelectionModeRandom,
+	SelectionModeHybrid,
+	SelectionModeLOR,
+	SelectionModeSingleCircle,
+	SelectionModeMultipleCircle,
+	SelectionModeRegionalMixnet,
+}
+
+func normalizeSelectionMode(mode SelectionMode) (SelectionMode, error) {
+	raw := strings.ToLower(strings.TrimSpace(string(mode)))
+	switch raw {
+	case "", "default", "rtt":
+		return SelectionModeRTT, nil
+	case "random":
+		return SelectionModeRandom, nil
+	case "hybrid":
+		return SelectionModeHybrid, nil
+	case "lor", "leave-one-random", "leave_one_random":
+		return SelectionModeLOR, nil
+	case "sc", "single-circle", "single_circle", "singlecircle":
+		return SelectionModeSingleCircle, nil
+	case "mc", "multiple-circle", "multiple_circle", "multiplecircle":
+		return SelectionModeMultipleCircle, nil
+	case "rm", "regional-mixnet", "regional_mixnet", "regionalmixnet":
+		return SelectionModeRegionalMixnet, nil
+	default:
+		names := make([]string, 0, len(supportedSelectionModes))
+		for _, supported := range supportedSelectionModes {
+			names = append(names, string(supported))
+		}
+		return "", fmt.Errorf("selection mode must be one of %s, got %s", strings.Join(names, ", "), mode)
+	}
+}
 
 // EncryptionMode defines how data is encrypted across hops.
 type EncryptionMode string
@@ -128,13 +173,13 @@ func DefaultConfig() *MixnetConfig {
 		EncryptionMode: EncryptionModeFull,
 
 		// Padding/auth defaults
-		PayloadPaddingStrategy: PaddingStrategyNone,
-		PayloadPaddingMin:      0,
-		PayloadPaddingMax:      0,
-		PayloadPaddingBuckets:  nil,
-		EnableAuthTag:          false,
-		AuthTagSize:            16,
-		EnableSessionRouting:   false,
+		PayloadPaddingStrategy:  PaddingStrategyNone,
+		PayloadPaddingMin:       0,
+		PayloadPaddingMax:       0,
+		PayloadPaddingBuckets:   nil,
+		EnableAuthTag:           false,
+		AuthTagSize:             16,
+		EnableSessionRouting:    false,
 		SessionRouteIdleTimeout: 30 * time.Second,
 	}
 }
@@ -205,12 +250,11 @@ func (c *MixnetConfig) Validate() error {
 	}
 
 	// Selection mode validation (Req 4.6)
-	if c.SelectionMode == "" {
-		c.SelectionMode = SelectionModeRTT
+	normalizedSelectionMode, err := normalizeSelectionMode(c.SelectionMode)
+	if err != nil {
+		return err
 	}
-	if c.SelectionMode != SelectionModeRTT && c.SelectionMode != SelectionModeRandom && c.SelectionMode != SelectionModeHybrid {
-		return fmt.Errorf("selection mode must be rtt, random, or hybrid, got %s", c.SelectionMode)
-	}
+	c.SelectionMode = normalizedSelectionMode
 
 	// Sampling size validation (Req 4.10)
 	required := c.HopCount * c.CircuitCount
@@ -367,7 +411,11 @@ func (c *MixnetConfig) SetSelectionMode(mode SelectionMode) error {
 	if c.locked {
 		return ErrConfigImmutable
 	}
-	c.SelectionMode = mode
+	normalized, err := normalizeSelectionMode(mode)
+	if err != nil {
+		return err
+	}
+	c.SelectionMode = normalized
 	return nil
 }
 
@@ -530,6 +578,8 @@ func (c *MixnetConfig) InitDefaults() {
 	}
 	if c.SelectionMode == "" {
 		c.SelectionMode = SelectionModeRTT
+	} else if normalized, err := normalizeSelectionMode(c.SelectionMode); err == nil {
+		c.SelectionMode = normalized
 	}
 	if c.RandomnessFactor == 0 {
 		c.RandomnessFactor = 0.3

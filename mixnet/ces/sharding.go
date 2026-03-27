@@ -3,9 +3,39 @@ package ces
 import (
 	"encoding/binary"
 	"fmt"
+	"sync"
 
 	"github.com/klauspost/reedsolomon"
 )
+
+var shardDataPool = sync.Pool{
+	New: func() any {
+		return make([][]byte, 0, 32)
+	},
+}
+
+func borrowShardDataScratch(size int) ([][]byte, func()) {
+	if size <= 0 {
+		return nil, func() {}
+	}
+
+	buf := shardDataPool.Get().([][]byte)
+	if cap(buf) < size {
+		return make([][]byte, size), func() {}
+	}
+
+	buf = buf[:size]
+	for i := range buf {
+		buf[i] = nil
+	}
+
+	return buf, func() {
+		for i := range buf {
+			buf[i] = nil
+		}
+		shardDataPool.Put(buf[:0])
+	}
+}
 
 // Shard represents a single piece of data resulting from the sharding process.
 type Shard struct {
@@ -144,7 +174,8 @@ func (s *Sharder) Reconstruct(shards []*Shard) ([]byte, error) {
 	}
 
 	// Place provided shards into a full-length slice (nil = missing).
-	shardData := make([][]byte, s.totalShards)
+	shardData, releaseScratch := borrowShardDataScratch(s.totalShards)
+	defer releaseScratch()
 	for _, sh := range shards {
 		if sh.Index >= 0 && sh.Index < s.totalShards {
 			shardData[sh.Index] = sh.Data

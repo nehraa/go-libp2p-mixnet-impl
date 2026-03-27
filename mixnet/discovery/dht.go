@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"math/rand"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -22,10 +23,44 @@ import (
 type RelayDiscovery struct {
 	protocolID       string
 	samplingSize     int
-	selectionMode    string // "rtt", "random", "hybrid"
+	selectionMode    string
 	randomnessFactor float64
 	host             host.Host
 	pingService      *ping.PingService
+	rng              *rand.Rand
+	rngMu            sync.Mutex
+}
+
+const (
+	selectionModeRTT            = "rtt"
+	selectionModeRandom         = "random"
+	selectionModeHybrid         = "hybrid"
+	selectionModeLOR            = "lor"
+	selectionModeSingleCircle   = "single-circle"
+	selectionModeMultipleCircle = "multiple-circle"
+	selectionModeRegionalMixnet = "regional-mixnet"
+	defaultLatency              = 100 * time.Millisecond
+)
+
+func normalizeSelectionMode(mode string) string {
+	switch strings.ToLower(strings.TrimSpace(mode)) {
+	case "", "default", selectionModeRTT:
+		return selectionModeRTT
+	case selectionModeRandom:
+		return selectionModeRandom
+	case selectionModeHybrid:
+		return selectionModeHybrid
+	case selectionModeLOR, "leave-one-random", "leave_one_random":
+		return selectionModeLOR
+	case "sc", selectionModeSingleCircle, "single_circle", "singlecircle":
+		return selectionModeSingleCircle
+	case "mc", selectionModeMultipleCircle, "multiple_circle", "multiplecircle":
+		return selectionModeMultipleCircle
+	case "rm", selectionModeRegionalMixnet, "regional_mixnet", "regionalmixnet":
+		return selectionModeRegionalMixnet
+	default:
+		return selectionModeRTT
+	}
 }
 
 // RelayInfo contains information about a candidate relay node discovered in the network.
@@ -45,8 +80,9 @@ func NewRelayDiscovery(protocolID string, samplingSize int, selectionMode string
 	return &RelayDiscovery{
 		protocolID:       protocolID,
 		samplingSize:     samplingSize,
-		selectionMode:    selectionMode,
+		selectionMode:    normalizeSelectionMode(selectionMode),
 		randomnessFactor: randomnessFactor,
+		rng:              newRand(),
 	}
 }
 
@@ -56,10 +92,11 @@ func NewRelayDiscoveryWithHost(h host.Host, protocolID string, samplingSize int,
 	return &RelayDiscovery{
 		protocolID:       protocolID,
 		samplingSize:     samplingSize,
-		selectionMode:    selectionMode,
+		selectionMode:    normalizeSelectionMode(selectionMode),
 		randomnessFactor: randomnessFactor,
 		host:             h,
 		pingService:      ps,
+		rng:              newRand(),
 	}
 }
 
@@ -80,13 +117,19 @@ func (r *RelayDiscovery) FindRelays(ctx context.Context, peers []peer.AddrInfo, 
 		return nil, fmt.Errorf("insufficient relay peers: have %d, need %d", len(filtered), required)
 	}
 
-	switch r.selectionMode {
-	case "random":
+	switch normalizeSelectionMode(r.selectionMode) {
+	case selectionModeRandom:
 		return r.selectRandom(filtered, required)
-	case "hybrid":
+	case selectionModeHybrid:
 		return r.selectHybrid(ctx, filtered, required, hopCount, circuitCount, r.randomnessFactor)
-	case "rtt":
-		fallthrough
+	case selectionModeLOR:
+		return r.selectLeaveOneRandom(ctx, filtered, required)
+	case selectionModeSingleCircle:
+		return r.selectSingleCircle(ctx, filtered, required)
+	case selectionModeMultipleCircle:
+		return r.selectMultipleCircle(ctx, filtered, required, hopCount, circuitCount)
+	case selectionModeRegionalMixnet:
+		return r.selectRegionalMixnet(ctx, filtered, required, hopCount, circuitCount)
 	default:
 		return r.selectByRTT(ctx, filtered, required)
 	}
@@ -134,11 +177,7 @@ func (r *RelayDiscovery) selectRandom(peers []peer.AddrInfo, count int) ([]Relay
 
 	shuffled := make([]peer.AddrInfo, len(peers))
 	copy(shuffled, peers)
-	rng := newRand()
-	rng.Shuffle(len(shuffled), func(i, j int) {
-		shuffled[i], shuffled[j] = shuffled[j], shuffled[i]
-	})
-
+	r.shuffleAddrInfos(shuffled)
 	result := make([]RelayInfo, count)
 	for i := 0; i < count; i++ {
 		result[i] = RelayInfo{
@@ -151,52 +190,313 @@ func (r *RelayDiscovery) selectRandom(peers []peer.AddrInfo, count int) ([]Relay
 }
 
 func (r *RelayDiscovery) selectByRTT(ctx context.Context, peers []peer.AddrInfo, count int) ([]RelayInfo, error) {
-	sampled := r.sampleFromPool(peers)
-	if len(sampled) < count {
-		return nil, fmt.Errorf("insufficient peers: have %d, need %d", len(sampled), count)
+	sorted, err := r.sortedRelaysByLatency(ctx, peers, count, false)
+	if err != nil {
+		return nil, err
+	}
+	return takeUniqueRelays(sorted, count)
+}
+
+func (r *RelayDiscovery) selectSingleCircle(ctx context.Context, peers []peer.AddrInfo, count int) ([]RelayInfo, error) {
+	sorted, err := r.sortedRelaysByLatency(ctx, peers, count, true)
+	if err != nil {
+		return nil, err
+	}
+	return takeUniqueRelays(sorted, count)
+}
+
+func (r *RelayDiscovery) selectLeaveOneRandom(ctx context.Context, peers []peer.AddrInfo, count int) ([]RelayInfo, error) {
+	sorted, err := r.sortedRelaysByLatency(ctx, peers, maxInt(count+1, count*2), false)
+	if err != nil {
+		return nil, err
+	}
+	if len(sorted) > count {
+		window := minInt(len(sorted), maxInt(count+1, count*2))
+		dropIndex := r.randomIntn(window)
+		sorted = append(sorted[:dropIndex], sorted[dropIndex+1:]...)
+	}
+	return takeUniqueRelays(sorted, count)
+}
+
+func (r *RelayDiscovery) selectMultipleCircle(ctx context.Context, peers []peer.AddrInfo, required, hopCount, circuitCount int) ([]RelayInfo, error) {
+	sorted, err := r.sortedRelaysByLatency(ctx, peers, maxInt(required*2, r.samplingSize), true)
+	if err != nil {
+		return nil, err
+	}
+	circles := buildLatencyCircles(sorted, 3)
+	return selectCircuitLayout(circles, sorted, hopCount, circuitCount, false)
+}
+
+func (r *RelayDiscovery) selectRegionalMixnet(ctx context.Context, peers []peer.AddrInfo, required, hopCount, circuitCount int) ([]RelayInfo, error) {
+	sorted, err := r.sortedRelaysByLatency(ctx, peers, maxInt(required*2, r.samplingSize), true)
+	if err != nil {
+		return nil, err
+	}
+	return selectRegionalLayout(sorted, hopCount, circuitCount)
+}
+
+func (r *RelayDiscovery) sortedRelaysByLatency(ctx context.Context, peers []peer.AddrInfo, minCandidates int, fullPool bool) ([]RelayInfo, error) {
+	candidates := r.latencyCandidatePool(peers, minCandidates, fullPool)
+	if len(candidates) == 0 {
+		return nil, fmt.Errorf("insufficient peers: have 0, need %d", minCandidates)
 	}
 
-	latencies, err := r.measureLatencies(ctx, sampled)
+	latencies, err := r.measureLatencies(ctx, candidates)
 	if err != nil {
 		return nil, err
 	}
 
-	sort.Slice(sampled, func(i, j int) bool {
-		li, okI := latencies[sampled[i].ID]
-		lj, okJ := latencies[sampled[j].ID]
-		if !okI || li <= 0 {
-			li = time.Duration(1<<63 - 1)
+	sorted := make([]RelayInfo, 0, len(candidates))
+	for _, p := range candidates {
+		latency, ok := latencies[p.ID]
+		if !ok || latency <= 0 {
+			latency = defaultLatency
 		}
-		if !okJ || lj <= 0 {
-			lj = time.Duration(1<<63 - 1)
-		}
-		return li < lj
-	})
-
-	result := make([]RelayInfo, 0, count)
-	used := make(map[peer.ID]bool)
-
-	for _, p := range sampled {
-		if len(result) >= count {
-			break
-		}
-		if used[p.ID] {
-			continue
-		}
-		latency, available := latencies[p.ID]
-		result = append(result, RelayInfo{
+		sorted = append(sorted, RelayInfo{
 			PeerID:    p.ID,
 			AddrInfo:  p,
 			Latency:   latency,
-			Available: available && latency > 0,
+			Available: ok && latencies[p.ID] > 0,
 		})
-		used[p.ID] = true
 	}
 
-	if len(result) < count {
-		return nil, fmt.Errorf("could not select enough relays: have %d, need %d", len(result), count)
+	sort.SliceStable(sorted, func(i, j int) bool {
+		if sorted[i].Latency == sorted[j].Latency {
+			return sorted[i].PeerID.String() < sorted[j].PeerID.String()
+		}
+		return sorted[i].Latency < sorted[j].Latency
+	})
+
+	return sorted, nil
+}
+
+func (r *RelayDiscovery) latencyCandidatePool(peers []peer.AddrInfo, minCandidates int, fullPool bool) []peer.AddrInfo {
+	if fullPool || len(peers) <= minCandidates {
+		result := make([]peer.AddrInfo, len(peers))
+		copy(result, peers)
+		return result
 	}
+	target := minInt(len(peers), maxInt(minCandidates, r.samplingSize))
+	if target <= 0 || target >= len(peers) {
+		result := make([]peer.AddrInfo, len(peers))
+		copy(result, peers)
+		return result
+	}
+	return r.randomSample(peers, target)
+}
+
+func takeUniqueRelays(relays []RelayInfo, count int) ([]RelayInfo, error) {
+	result := make([]RelayInfo, 0, count)
+	used := make(map[peer.ID]struct{}, count)
+	for _, relay := range relays {
+		if _, ok := used[relay.PeerID]; ok {
+			continue
+		}
+		used[relay.PeerID] = struct{}{}
+		result = append(result, relay)
+		if len(result) == count {
+			return result, nil
+		}
+	}
+	return nil, fmt.Errorf("could not select enough relays: have %d, need %d", len(result), count)
+}
+
+func buildLatencyCircles(sorted []RelayInfo, circleCount int) [][]RelayInfo {
+	if len(sorted) == 0 {
+		return nil
+	}
+	if circleCount < 1 {
+		circleCount = 1
+	}
+	if circleCount > len(sorted) {
+		circleCount = len(sorted)
+	}
+
+	circles := make([][]RelayInfo, 0, circleCount)
+	baseSize := len(sorted) / circleCount
+	remainder := len(sorted) % circleCount
+	start := 0
+	for i := 0; i < circleCount; i++ {
+		size := baseSize
+		if remainder > 0 {
+			size++
+			remainder--
+		}
+		end := start + size
+		if end > len(sorted) {
+			end = len(sorted)
+		}
+		if end > start {
+			circles = append(circles, sorted[start:end])
+		}
+		start = end
+	}
+	return circles
+}
+
+func selectCircuitLayout(circles [][]RelayInfo, fallback []RelayInfo, hopCount, circuitCount int, preferRemoteExit bool) ([]RelayInfo, error) {
+	required := hopCount * circuitCount
+	if required == 0 {
+		return nil, nil
+	}
+
+	result := make([]RelayInfo, 0, required)
+	used := make(map[peer.ID]struct{}, required)
+
+	for circuit := 0; circuit < circuitCount; circuit++ {
+		baseCircle := circuit % maxInt(1, len(circles))
+		for hop := 0; hop < hopCount; hop++ {
+			circleOrder := orderedCircleIndices(len(circles), baseCircle, hop, hopCount, preferRemoteExit)
+			relay, ok := pickUnusedRelayFromCircles(circles, circleOrder, used)
+			if !ok {
+				relay, ok = pickUnusedRelay(fallback, used)
+			}
+			if !ok {
+				return nil, fmt.Errorf("could not select enough relays: have %d, need %d", len(result), required)
+			}
+			used[relay.PeerID] = struct{}{}
+			result = append(result, relay)
+		}
+	}
+
 	return result, nil
+}
+
+func selectRegionalLayout(sorted []RelayInfo, hopCount, circuitCount int) ([]RelayInfo, error) {
+	required := hopCount * circuitCount
+	if required == 0 {
+		return nil, nil
+	}
+
+	if len(sorted) < required {
+		return nil, fmt.Errorf("could not select enough relays: have %d, need %d", len(sorted), required)
+	}
+
+	fastCount := len(sorted) / 2
+	if fastCount < hopCount-1 {
+		fastCount = minInt(len(sorted), maxInt(hopCount-1, 1))
+	}
+	if fastCount >= len(sorted) {
+		fastCount = len(sorted) - 1
+	}
+	if fastCount <= 0 {
+		return takeUniqueRelays(sorted, required)
+	}
+
+	fastPool := sorted[:fastCount]
+	remotePool := sorted[fastCount:]
+	result := make([]RelayInfo, 0, required)
+	used := make(map[peer.ID]struct{}, required)
+
+	for circuit := 0; circuit < circuitCount; circuit++ {
+		for hop := 0; hop < hopCount; hop++ {
+			pool := fastPool
+			if hop == hopCount-1 && len(remotePool) > 0 {
+				pool = remotePool
+			}
+			relay, ok := pickUnusedRelay(pool, used)
+			if !ok {
+				relay, ok = pickUnusedRelay(sorted, used)
+			}
+			if !ok {
+				return nil, fmt.Errorf("could not select enough relays: have %d, need %d", len(result), required)
+			}
+			used[relay.PeerID] = struct{}{}
+			result = append(result, relay)
+		}
+	}
+
+	return result, nil
+}
+
+func orderedCircleIndices(circleCount, baseCircle, hop, hopCount int, preferRemoteExit bool) []int {
+	if circleCount == 0 {
+		return nil
+	}
+
+	order := make([]int, 0, circleCount)
+	seen := make(map[int]struct{}, circleCount)
+	if preferRemoteExit && hop == hopCount-1 {
+		order = append(order, circleCount-1)
+		seen[circleCount-1] = struct{}{}
+	}
+	start := baseCircle % circleCount
+	for offset := 0; offset < circleCount; offset++ {
+		idx := (start + offset) % circleCount
+		if _, ok := seen[idx]; ok {
+			continue
+		}
+		order = append(order, idx)
+	}
+	return order
+}
+
+func pickUnusedRelayFromCircles(circles [][]RelayInfo, order []int, used map[peer.ID]struct{}) (RelayInfo, bool) {
+	for _, idx := range order {
+		if idx < 0 || idx >= len(circles) {
+			continue
+		}
+		if relay, ok := pickUnusedRelay(circles[idx], used); ok {
+			return relay, true
+		}
+	}
+	return RelayInfo{}, false
+}
+
+func pickUnusedRelay(candidates []RelayInfo, used map[peer.ID]struct{}) (RelayInfo, bool) {
+	for _, candidate := range candidates {
+		if _, ok := used[candidate.PeerID]; ok {
+			continue
+		}
+		return candidate, true
+	}
+	return RelayInfo{}, false
+}
+
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+func maxInt(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+func (r *RelayDiscovery) shuffleAddrInfos(shuffled []peer.AddrInfo) {
+	r.rngMu.Lock()
+	defer r.rngMu.Unlock()
+	if r.rng == nil {
+		r.rng = newRand()
+	}
+	r.rng.Shuffle(len(shuffled), func(i, j int) {
+		shuffled[i], shuffled[j] = shuffled[j], shuffled[i]
+	})
+}
+
+func (r *RelayDiscovery) randomIntn(n int) int {
+	if n <= 1 {
+		return 0
+	}
+	r.rngMu.Lock()
+	defer r.rngMu.Unlock()
+	if r.rng == nil {
+		r.rng = newRand()
+	}
+	return r.rng.Intn(n)
+}
+
+func (r *RelayDiscovery) randomFloat64() float64 {
+	r.rngMu.Lock()
+	defer r.rngMu.Unlock()
+	if r.rng == nil {
+		r.rng = newRand()
+	}
+	return r.rng.Float64()
 }
 
 func (r *RelayDiscovery) selectHybrid(ctx context.Context, peers []peer.AddrInfo, required, hopCount, circuitCount int, randomnessFactor float64) ([]RelayInfo, error) {
@@ -236,10 +536,7 @@ func (r *RelayDiscovery) randomSample(peers []peer.AddrInfo, k int) []peer.AddrI
 	}
 	shuffled := make([]peer.AddrInfo, len(peers))
 	copy(shuffled, peers)
-	rng := newRand()
-	rng.Shuffle(len(shuffled), func(i, j int) {
-		shuffled[i], shuffled[j] = shuffled[j], shuffled[i]
-	})
+	r.shuffleAddrInfos(shuffled)
 	return shuffled[:k]
 }
 
@@ -250,7 +547,7 @@ func (r *RelayDiscovery) measureLatencies(ctx context.Context, peers []peer.Addr
 	if r.pingService == nil {
 		// No host available: assign a uniform default so callers get a valid map.
 		for _, p := range peers {
-			result[p.ID] = 100 * time.Millisecond
+			result[p.ID] = defaultLatency
 		}
 		return result, nil
 	}
@@ -363,7 +660,7 @@ func (r *RelayDiscovery) buildCircuitsWithWeights(peers []peer.AddrInfo, latenci
 	for _, p := range peers {
 		lat, ok := latencies[p.ID]
 		if !ok || lat <= 0 {
-			lat = 100 * time.Millisecond
+			lat = defaultLatency
 		}
 		effectiveLatencies[p.ID] = lat
 		weight := 1.0 / (float64(lat.Milliseconds()) + 1)
@@ -411,19 +708,21 @@ func (r *RelayDiscovery) weightedSelect(peers []weightedPeer, randomnessFactor f
 		return &peers[0]
 	}
 
+	adjustedWeights := make([]float64, len(peers))
 	var totalWeight float64
-	for _, p := range peers {
-		randomWeight := rand.Float64() * randomnessFactor
-		adjustedWeight := p.weight*(1-randomnessFactor) + randomWeight
-		totalWeight += adjustedWeight
+	for i, p := range peers {
+		randomWeight := r.randomFloat64() * randomnessFactor
+		adjustedWeights[i] = p.weight*(1-randomnessFactor) + randomWeight
+		totalWeight += adjustedWeights[i]
+	}
+	if totalWeight <= 0 {
+		return &peers[0]
 	}
 
-	rVal := rand.Float64() * totalWeight
+	rVal := r.randomFloat64() * totalWeight
 	var cumulative float64
-	for i, p := range peers {
-		randomWeight := rand.Float64() * randomnessFactor
-		adjustedWeight := p.weight*(1-randomnessFactor) + randomWeight
-		cumulative += adjustedWeight
+	for i := range peers {
+		cumulative += adjustedWeights[i]
 		if rVal <= cumulative {
 			return &peers[i]
 		}
@@ -433,7 +732,7 @@ func (r *RelayDiscovery) weightedSelect(peers []weightedPeer, randomnessFactor f
 
 // SelectRelaysForCircuit selects a set of relays for a single circuit.
 func (r *RelayDiscovery) SelectRelaysForCircuit(ctx context.Context, peers []peer.AddrInfo, hopCount int, randomnessFactor float64) ([]RelayInfo, error) {
-	sampled := r.randomSample(peers, r.samplingSize)
+	sampled := r.sampleFromPool(peers)
 	if len(sampled) < hopCount {
 		return nil, fmt.Errorf("insufficient relays")
 	}
@@ -447,7 +746,7 @@ func (r *RelayDiscovery) SelectRelaysForCircuit(ctx context.Context, peers []pee
 	for _, p := range sampled {
 		lat, ok := latencies[p.ID]
 		if !ok || lat <= 0 {
-			lat = 100 * time.Millisecond
+			lat = defaultLatency
 		}
 		effectiveLatencies[p.ID] = lat
 		weight := 1.0 / float64(lat.Milliseconds()+1)
