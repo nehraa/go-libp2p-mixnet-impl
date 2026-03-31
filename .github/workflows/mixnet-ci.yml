@@ -27,7 +27,7 @@ jobs:
           cache-dependency-path: go.sum
 
       - name: Run mixnet Go tests
-        run: go test ./mixnet/...
+        run: go test -count=1 ./mixnet/...
 
   benchmark-smoke:
     name: Benchmark Smoke
@@ -47,12 +47,18 @@ jobs:
         run: ./mixnet/benchmarks/run_local_benchmarks.sh smoke --runs 1
 
   docker-sanity:
-    name: Docker Sanity
+    name: Docker Integration
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Run dockerized sanity suite
-        run: bash mixnet/tests/docker/run-docker-tests.sh
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - name: Run docker integration tests
+        run: go test -count=1 -tags docker_integration ./mixnet/core -run '^(TestDockerComposeUpDown|TestDockerFailureAndRecoverFromFailure)$' -v

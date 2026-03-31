@@ -29,7 +29,7 @@ All files below live under `mixnet/core/`.
 | `auth_tag.go` | Creates and verifies optional per-shard authenticity tags used to reject tampered traffic early. |
 | `benchmark_exports.go` | Exports selected internal helpers to the benchmark CLI without broadening the public API contract. |
 | `config.go` | Defines `MixnetConfig`, configuration defaults, validation rules, and helper accessors for derived values such as the shard reconstruction threshold. |
-| `docker_failure_test.go` | Placeholder Docker-oriented failure harness kept behind the `docker_integration` build tag; the maintained container workflow lives under `tests/docker/`. |
+| `docker_failure_test.go` | Docker-only integration wrappers kept behind the `docker_integration` build tag; they verify compose lifecycle and run the maintained containerized failure-recovery sanity path from `tests/docker/`. |
 | `errors.go` | Defines the structured `MixnetError` type and the error constructors used by the public API. |
 | `failure_detection.go` | Watches established circuits, records heartbeat state, and triggers circuit failure notifications and recovery paths. |
 | `key_management.go` | Manages ephemeral key material, retry policies, and graceful shutdown helpers for key lifecycle operations. |
