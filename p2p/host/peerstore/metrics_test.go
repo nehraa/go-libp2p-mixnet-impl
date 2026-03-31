@@ -1,7 +1,6 @@
 package peerstore
 
 import (
-	"fmt"
 	"math/rand"
 	"testing"
 	"time"
@@ -9,30 +8,42 @@ import (
 	"github.com/libp2p/go-libp2p/core/test"
 )
 
-func TestLatencyEWMAFun(t *testing.T) {
-	t.Skip("run it for fun")
-
+func TestLatencyEWMAFallsBackToDefaultSmoothing(t *testing.T) {
 	m := NewMetrics()
 	id, err := test.RandPeerID()
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	mu := 100.0
-	sig := 10.0
-	next := func() time.Duration {
-		mu = (rand.NormFloat64() * sig) + mu
-		return time.Duration(mu)
+	original := LatencyEWMASmoothing
+	LatencyEWMASmoothing = 2
+	t.Cleanup(func() { LatencyEWMASmoothing = original })
+
+	m.RecordLatency(id, 100*time.Millisecond)
+	m.RecordLatency(id, 200*time.Millisecond)
+
+	got := m.LatencyEWMA(id)
+	want := 110 * time.Millisecond // 100ms blended with the default smoothing factor of 0.1
+	if diff := got - want; diff < -time.Millisecond || diff > time.Millisecond {
+		t.Fatalf("expected EWMA near %s, got %s", want, got)
+	}
+}
+
+func TestLatencyEWMARemovePeer(t *testing.T) {
+	m := NewMetrics()
+	id, err := test.RandPeerID()
+	if err != nil {
+		t.Fatal(err)
 	}
 
-	print := func() {
-		fmt.Printf("%3.f %3.f --> %d\n", sig, mu, m.LatencyEWMA(id))
+	m.RecordLatency(id, 100*time.Millisecond)
+	if m.LatencyEWMA(id) == 0 {
+		t.Fatal("expected a recorded latency")
 	}
 
-	for {
-		time.Sleep(200 * time.Millisecond)
-		m.RecordLatency(id, next())
-		print()
+	m.RemovePeer(id)
+	if got := m.LatencyEWMA(id); got != 0 {
+		t.Fatalf("expected latency to be cleared, got %s", got)
 	}
 }
 
