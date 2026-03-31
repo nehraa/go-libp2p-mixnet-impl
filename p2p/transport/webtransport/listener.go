@@ -317,8 +317,8 @@ func (l *listener) Multiaddr() ma.Multiaddr {
 func (l *listener) Close() error {
 	l.ctxCancel()
 	l.reuseListener.Close()
-	err := l.server.Close()
 	<-l.serverClosed
+	err := l.server.Close()
 loop:
 	for {
 		select {
