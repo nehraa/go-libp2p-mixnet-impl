@@ -105,8 +105,8 @@ def build_cmd(mode: str, verbose_runtime_logs: bool):
 
     if mode == "local":
         return (
-            ["go", "test", ".", "-count=1", "-v", "-run", "^TestProductionSanity$"],
-            str(mixnet_root),
+            ["go", "test", "./mixnet/core", "-count=1", "-v", "-run", "^TestProductionSanity$"],
+            str(repo_root),
             env,
         )
     env["TARGET_TEST"] = "TestProductionSanity"

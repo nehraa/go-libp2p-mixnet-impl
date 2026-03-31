@@ -8,22 +8,23 @@ behavior lives in the implementation.
 
 ```text
 mixnet/
-├── Docs/                  Narrative documentation and design notes
 ├── benchmarks/            Local benchmark CLI, docs, and generated output
 ├── ces/                   Compress-Encrypt-Shard pipeline
 ├── circuit/               Circuit state and circuit management
+├── core/                  Public mixnet Go package and its tests
 ├── discovery/             Relay discovery and selection
+├── docs/                  Narrative documentation and design notes
 ├── relay/                 Relay-side forwarding logic
-├── tests/                 Auxiliary test dashboard tooling
-├── *.go                   Core mixnet runtime, packet formats, tests, and helpers
-└── run_local_benchmarks.sh Convenience wrapper around the benchmark CLI
+└── tests/                 Auxiliary test dashboard tooling
 ```
 
 ## Core package files
 
+All files below live under `mixnet/core/`.
+
 | File | Responsibility |
 | --- | --- |
-| `README.md` | Package-level guide that explains the public API surface, major directories, and where to find deeper narrative documentation. |
+| `docs/package-guide.md` | Package-level guide that explains the public API surface, major directories, and where to find deeper narrative documentation. |
 | `doc.go` | Package comment for Go documentation tooling, including the end-to-end protocol flow and major implementation areas. |
 | `auth_tag.go` | Creates and verifies optional per-shard authenticity tags used to reject tampered traffic early. |
 | `benchmark_exports.go` | Exports selected internal helpers to the benchmark CLI without broadening the public API contract. |
@@ -87,7 +88,7 @@ mixnet/
 
 | Path | Responsibility |
 | --- | --- |
-| `run_local_benchmarks.sh` | Convenience wrapper that sets defaults and launches `go run ./mixnet/benchmarks/cmd/mixnet-bench`. |
+| `benchmarks/run_local_benchmarks.sh` | Convenience wrapper that sets defaults and launches `go run ./mixnet/benchmarks/cmd/mixnet-bench`. |
 | `benchmarks/README.md` | Benchmark profiles, size sweeps, report contents, and invocation examples. |
 | `benchmarks/cmd/mixnet-bench/` | Benchmark CLI entry point, scenario runner, report generator, and optional visual-proof capture. |
 | `benchmarks/output/README.md` | Documents the timestamped local artifact directories written by benchmark runs. |
@@ -101,7 +102,7 @@ of the versioned source tree.
 
 ## Documentation files
 
-### `Docs/README/`
+### `docs/README/`
 
 | File | Responsibility |
 | --- | --- |
@@ -112,7 +113,7 @@ of the versioned source tree.
 | `relay-readme.md` | Relay node behavior, forwarding model, and deployment notes. |
 | `project-structure.md` | This file; a map of the mixnet implementation tree. |
 
-### `Docs/PRD/`
+### `docs/PRD/`
 
 | File | Responsibility |
 | --- | --- |
@@ -126,14 +127,14 @@ of the versioned source tree.
 
 If you are new to the codebase, the most useful order is:
 
-1. `README.md`
-2. `Docs/README/mixnet-readme.md`
-3. `config.go`
-4. `upgrader.go`
-5. `stream.go`
+1. `docs/package-guide.md`
+2. `docs/README/mixnet-readme.md`
+3. `core/config.go`
+4. `core/upgrader.go`
+5. `core/stream.go`
 6. `circuit/`, `relay/`, and `discovery/`
 7. `ces/` and the packet-format helpers
-8. `production_sanity_test.go` and `tests/README.md` when you want to follow the end-to-end verification path
+8. `core/production_sanity_test.go` and `tests/README.md` when you want to follow the end-to-end verification path
 
 That sequence moves from the public API to the orchestration layer and then to
 the lower-level protocol machinery.

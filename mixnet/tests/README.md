@@ -1,7 +1,7 @@
 # Mixnet test tooling
 
-`mixnet/tests/` holds helper tooling around the Go test suites in the package
-root.
+`mixnet/tests/` holds helper tooling around the Go test suites in the
+`mixnet/core` package.
 
 ## Contents
 
@@ -12,10 +12,10 @@ root.
 
 ## Common entry points
 
-Run the main local sanity suite from the package root:
+Run the main local sanity suite from the repository root:
 
 ```bash
-go test ./mixnet -count=1 -v -run '^TestProductionSanity$'
+go test ./mixnet/core -count=1 -v -run '^TestProductionSanity$'
 ```
 
 Launch the dashboard wrapper:

@@ -20,8 +20,8 @@ COPY . .
 # Install benchmark dependencies
 RUN go install golang.org/x/perf/cmd/benchstat@latest
 
-# Create results directory
-RUN mkdir -p /app/mixnet/benchmarks/results
+# Create benchmark artifact directory
+RUN mkdir -p /app/mixnet/benchmarks/output
 
 # Default command (can be overridden)
 CMD ["sleep", "infinity"]

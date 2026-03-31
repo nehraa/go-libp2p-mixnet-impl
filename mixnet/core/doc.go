@@ -29,11 +29,11 @@
 //
 // The package is intentionally organized around those stages:
 //
-//   - config.go defines MixnetConfig and its privacy/performance knobs.
-//   - session_routing.go defines the opt-in setup/data/close wire frames.
-//   - upgrader.go coordinates connection establishment and shard delivery.
-//   - stream.go exposes a familiar io.ReadWriteCloser-style stream interface.
-//   - privacy_transport.go, onion.go, onion_header.go, padding.go, and
+//   - core/config.go defines MixnetConfig and its privacy/performance knobs.
+//   - core/session_routing.go defines the opt-in setup/data/close wire frames.
+//   - core/upgrader.go coordinates connection establishment and shard delivery.
+//   - core/stream.go exposes a familiar io.ReadWriteCloser-style stream interface.
+//   - core/privacy_transport.go, core/onion.go, core/onion_header.go, core/padding.go, and
 //     session_crypto.go implement the packet formats and cryptographic helpers.
 //   - relay_discovery.go and discovery/ select relay candidates.
 //   - circuit/ builds and maintains circuits.
@@ -41,7 +41,7 @@
 //   - ces/ implements optional compression, encryption, and sharding stages.
 //
 // For narrative documentation and design notes, see the markdown documents in
-// the mixnet/Docs directory and the package README in mixnet/README.md.
+// the mixnet/docs directory and the package guide in mixnet/docs/package-guide.md.
 // Benchmark tooling lives under mixnet/benchmarks, helper test harnesses live
 // under mixnet/tests, and generated benchmark artifacts under
 // mixnet/benchmarks/output are intentionally local-only.

@@ -1,7 +1,9 @@
 # Lib-Mix package guide
 
 `mixnet/` contains the implementation of the Lib-Mix protocol for `go-libp2p`.
-The package is designed to feel like other libp2p transports and protocol
+The public Go package now lives under `mixnet/core/` with import path
+`github.com/libp2p/go-libp2p/mixnet/core`. The package is designed to feel
+like other libp2p transports and protocol
 adapters: the public API is centered around configuration, construction, and a
 stream-like interface, while the lower-level packages handle relay discovery,
 circuit lifecycle, and packet processing.
@@ -84,38 +86,39 @@ header-only session-data frames.
 
 | Path | Purpose |
 | --- | --- |
-| `config.go` | Mixnet configuration, defaults, validation, and derived values. |
-| `session_routing.go` | Setup/data/close frame definitions for the opt-in session-routing mode. |
-| `upgrader.go` | Core `Mixnet` type and end-to-end send/receive orchestration. |
-| `stream.go` | Stream-oriented API (`OpenStream`, `AcceptStream`, `Read`, `Write`, `Close`). |
-| `privacy_transport.go` | Privacy packet format used between origin, relays, and destination. |
-| `onion.go` / `onion_header.go` | Onion header construction, layered encryption, and header parsing. |
-| `padding.go` / `auth_tag.go` | Size-hiding padding and optional shard authenticity tags. |
-| `session_crypto.go` / `noise_key_exchange.go` / `key_management.go` | Session payload encryption and Noise-based key exchange helpers. |
-| `relay_discovery.go` / `discovery/` | Relay discovery, sampling, and selection. |
+| `core/config.go` | Mixnet configuration, defaults, validation, and derived values. |
+| `core/session_routing.go` | Setup/data/close frame definitions for the opt-in session-routing mode. |
+| `core/upgrader.go` | Core `Mixnet` type and end-to-end send/receive orchestration. |
+| `core/stream.go` | Stream-oriented API (`OpenStream`, `AcceptStream`, `Read`, `Write`, `Close`). |
+| `core/privacy_transport.go` | Privacy packet format used between origin, relays, and destination. |
+| `core/onion.go` / `core/onion_header.go` | Onion header construction, layered encryption, and header parsing. |
+| `core/padding.go` / `core/auth_tag.go` | Size-hiding padding and optional shard authenticity tags. |
+| `core/session_crypto.go` / `core/noise_key_exchange.go` / `core/key_management.go` | Session payload encryption and Noise-based key exchange helpers. |
+| `core/relay_discovery.go` / `discovery/` | Relay discovery, sampling, and selection. |
 | `circuit/` | Circuit state, circuit construction, heartbeats, and recovery. |
 | `relay/` | Relay-side forwarding handlers and relay key exchange. |
 | `ces/` | Optional Compress-Encrypt-Shard pipeline implementation. |
-| `benchmark_exports.go` / `benchmarks/` | Benchmark-only exports plus the local benchmark CLI, docs, and generated-report conventions. |
-| `metrics*.go` / `resource_management.go` / `failure_detection.go` | Operations, observability, and runtime protections. |
-| `*_test.go` / `tests/` | Package tests plus the dashboard and Docker harness used to run the production sanity suite. |
-| `Docs/` | Narrative protocol, configuration, and component documentation. |
+| `core/benchmark_exports.go` / `benchmarks/` | Benchmark-only exports plus the local benchmark CLI, docs, and generated-report conventions. |
+| `core/metrics*.go` / `core/resource_management.go` / `core/failure_detection.go` | Operations, observability, and runtime protections. |
+| `core/*_test.go` / `tests/` | Package tests plus the dashboard and Docker harness used to run the production sanity suite. |
+| `docs/` | Narrative protocol, configuration, and component documentation. |
 
 ## Documentation map
 
-The markdown documentation in `mixnet/Docs` is split into two groups:
+The markdown documentation in `mixnet/docs` is split into two groups:
 
-- `Docs/README/`: implementation-facing guides for the main package and
+- `docs/README/`: implementation-facing guides for the main package and
   subpackages.
-- `Docs/PRD/`: design, requirement, and configuration documents aligned to the
+- `docs/PRD/`: design, requirement, and configuration documents aligned to the
   current implementation.
 
 Useful starting points:
 
-- `Docs/README/mixnet-readme.md`: protocol overview and usage.
-- `Docs/README/project-structure.md`: file-by-file map of the mixnet folder.
-- `Docs/PRD/design.md`: end-to-end design and protocol walkthrough.
-- `Docs/PRD/configuration-reference.md`: configuration defaults and trade-offs.
+- `docs/package-guide.md`: package guide and documentation map.
+- `docs/README/mixnet-readme.md`: protocol overview and usage.
+- `docs/README/project-structure.md`: file-by-file map of the mixnet folder.
+- `docs/PRD/design.md`: end-to-end design and protocol walkthrough.
+- `docs/PRD/configuration-reference.md`: configuration defaults and trade-offs.
 - `benchmarks/README.md`: local benchmark workflow and output format.
 - `tests/README.md`: local versus Docker sanity-test entry points.
 
@@ -125,7 +128,7 @@ version-controlled.
 
 ## Public API entry points
 
-- Import path: `github.com/libp2p/go-libp2p/mixnet`
+- Import path: `github.com/libp2p/go-libp2p/mixnet/core`
 - `DefaultConfig` / `NewMixnetConfig`: create configuration.
 - `DefaultRetryConfig` / `RetryWithBackoff`: retry helpers for transient failures.
 - `NewMixnet`: construct the runtime.
@@ -144,7 +147,8 @@ version-controlled.
 - `ProtocolID`: the public libp2p protocol ID when you need to wire handlers or verify support manually.
 
 There is no `main.go` entry point for embedding mixnet into another libp2p
-application. Mixnet is a library package: applications import `mixnet`,
+application. Mixnet is a library package: applications import
+`github.com/libp2p/go-libp2p/mixnet/core` (typically aliased to `mixnet`),
 construct a `Mixnet` with `NewMixnet`, and configure hops, circuits, and flags
 through `MixnetConfig`. The `main.go` under
 `mixnet/benchmarks/cmd/mixnet-bench/` is only the benchmark CLI.

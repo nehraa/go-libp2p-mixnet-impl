@@ -30,7 +30,7 @@ docker compose -f "$COMPOSE_FILE" ps
 
 echo "=== Running tests in container (pattern: $TARGET_TEST) ==="
 docker compose -f "$COMPOSE_FILE" exec -T mixnet-origin sh -lc \
-  "cd /app/mixnet && MIXNET_DOCKER_TEST=1 MIXNET_SANITY_VERBOSE_LOGS=$VERBOSE_RUNTIME_LOGS $GO_BIN test . -count=1 -v -run '$TARGET_TEST'"
+  "cd /app/mixnet/core && MIXNET_DOCKER_TEST=1 MIXNET_SANITY_VERBOSE_LOGS=$VERBOSE_RUNTIME_LOGS $GO_BIN test . -count=1 -v -run '$TARGET_TEST'"
 
 echo "=== Cleaning up ==="
 docker compose -f "$COMPOSE_FILE" down

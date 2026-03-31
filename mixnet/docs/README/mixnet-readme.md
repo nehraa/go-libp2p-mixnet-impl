@@ -81,9 +81,9 @@ This is the important implementation detail behind the header-only benchmark
 improvement for large payloads: reduced hop crypto and reduced relay-side copy
 pressure.
 
-This layered flow is why the codebase is split into `config.go`,
-`upgrader.go`, `stream.go`, `privacy_transport.go`, `circuit/`, `relay/`,
-`discovery/`, and `ces/`.
+This layered flow is why the codebase is split into `core/config.go`,
+`core/upgrader.go`, `core/stream.go`, `core/privacy_transport.go`,
+`circuit/`, `relay/`, `discovery/`, and `ces/`.
 
 ## Architecture
 
@@ -124,7 +124,7 @@ graph TB
 import (
     "time"
 
-    "github.com/libp2p/go-libp2p/mixnet"
+    mixnet "github.com/libp2p/go-libp2p/mixnet/core"
 )
 
 // Configure the mixnet.
@@ -260,7 +260,7 @@ choices exist, and what benefit each one provides, see
 
 ## Package Structure
 
-- [`README.md`](../../README.md): package guide and documentation map for the
+- [`package-guide.md`](../package-guide.md): package guide and documentation map for the
   `mixnet/` folder.
 - [`project-structure.md`](project-structure.md): file-by-file guide to the
   implementation tree.
@@ -284,7 +284,7 @@ choices exist, and what benefit each one provides, see
 There is no application `main.go` for mixnet itself. Embedding it into a
 libp2p application starts with the library package:
 
-1. Import `github.com/libp2p/go-libp2p/mixnet`.
+1. Import `github.com/libp2p/go-libp2p/mixnet/core` and alias it to `mixnet` if you want the old local name.
 2. Build a `MixnetConfig` with `DefaultConfig` or `NewMixnetConfig`.
 3. Set hops, circuits, encryption mode, and flags such as
    `EnableSessionRouting`.

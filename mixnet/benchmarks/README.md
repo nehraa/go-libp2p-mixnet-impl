@@ -119,19 +119,19 @@ The `full` profile uses:
 Full sweep:
 
 ```bash
-./mixnet/run_local_benchmarks.sh
+./mixnet/benchmarks/run_local_benchmarks.sh
 ```
 
 Quick focused sweep:
 
 ```bash
-./mixnet/run_local_benchmarks.sh quick --timeout 10m
+./mixnet/benchmarks/run_local_benchmarks.sh quick --timeout 10m
 ```
 
 Targeted run:
 
 ```bash
-./mixnet/run_local_benchmarks.sh \
+./mixnet/benchmarks/run_local_benchmarks.sh \
   --groups mode-overview,ces-pipeline \
   --sizes 1KB,64KB,1MB \
   --runs 6

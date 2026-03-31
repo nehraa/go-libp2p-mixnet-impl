@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/libp2p/go-libp2p/core/peer"
-	"github.com/libp2p/go-libp2p/mixnet"
+	mixnet "github.com/libp2p/go-libp2p/mixnet/core"
 	"github.com/libp2p/go-libp2p/mixnet/relay"
 )
 

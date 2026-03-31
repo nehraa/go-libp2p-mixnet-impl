@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -50,6 +51,21 @@ func newDockerTestNetwork(t *testing.T, nodeCount int) *DockerTestNetwork {
 		Subnet:  "10.10.0.0/16",
 		TestDir: testDir,
 	}
+}
+
+func repoRootDir(t *testing.T) string {
+	t.Helper()
+
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("failed to resolve docker test file path")
+	}
+	return filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
+}
+
+func dockerComposeTestFile(t *testing.T) string {
+	t.Helper()
+	return filepath.Join(repoRootDir(t), "mixnet", "tests", "docker", "docker-compose.test.yml")
 }
 
 // generateNodeConfig creates a node configuration for Docker deployment
@@ -120,8 +136,8 @@ func (n *DockerTestNetwork) startContainer(t *testing.T, node *DockerNode) {
 	}
 
 	// Build and run container
-	cmd := exec.CommandContext(ctx, "docker", "compose", "-f", "mixnet/tests/docker/docker-compose.test.yml", "up", "-d", node.Name)
-	cmd.Dir = filepath.Join("..", "..")
+	cmd := exec.CommandContext(ctx, "docker", "compose", "-f", dockerComposeTestFile(t), "up", "-d", node.Name)
+	cmd.Dir = repoRootDir(t)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("failed to start container %s: %v\n%s", node.Name, err, string(output))
@@ -138,8 +154,8 @@ func (n *DockerTestNetwork) stopContainer(t *testing.T, nodeName string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, "docker", "compose", "-f", "mixnet/tests/docker/docker-compose.test.yml", "stop", nodeName)
-	cmd.Dir = filepath.Join("..", "..")
+	cmd := exec.CommandContext(ctx, "docker", "compose", "-f", dockerComposeTestFile(t), "stop", nodeName)
+	cmd.Dir = repoRootDir(t)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Logf("warning: failed to stop container %s: %v\n%s", nodeName, err, string(output))
@@ -430,8 +446,8 @@ func TestDockerComposeUpDown(t *testing.T) {
 
 	// Start all containers
 	t.Log("Starting docker-compose...")
-	cmd := exec.CommandContext(ctx, "docker", "compose", "-f", "mixnet/tests/docker/docker-compose.test.yml", "up", "-d")
-	cmd.Dir = filepath.Join("..", "..")
+	cmd := exec.CommandContext(ctx, "docker", "compose", "-f", dockerComposeTestFile(t), "up", "-d")
+	cmd.Dir = repoRootDir(t)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("docker-compose up failed: %v\n%s", err, string(output))
@@ -464,8 +480,8 @@ func TestDockerComposeUpDown(t *testing.T) {
 
 	// Stop all containers
 	t.Log("Stopping docker-compose...")
-	cmd = exec.CommandContext(ctx, "docker", "compose", "-f", "mixnet/tests/docker/docker-compose.test.yml", "down")
-	cmd.Dir = filepath.Join("..", "..")
+	cmd = exec.CommandContext(ctx, "docker", "compose", "-f", dockerComposeTestFile(t), "down")
+	cmd.Dir = repoRootDir(t)
 	output, err = cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("docker-compose down failed: %v\n%s", err, string(output))

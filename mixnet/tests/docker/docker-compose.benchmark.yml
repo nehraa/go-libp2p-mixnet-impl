@@ -9,7 +9,7 @@ services:
     container_name: mixnet-benchmark-runner
     command: ["sh", "-c", "sleep infinity"]
     volumes:
-      - ../../../mixnet/benchmarks/results:/app/mixnet/benchmarks/results
+      - ../../../mixnet/benchmarks/output:/app/mixnet/benchmarks/output
     networks:
       mixnet-bench-net:
         ipv4_address: 10.20.0.100

@@ -1,7 +1,7 @@
 # Benchmark output
 
 `mixnet/benchmarks/output/` is the default destination for local benchmark
-artifacts produced by `./mixnet/run_local_benchmarks.sh` and
+artifacts produced by `./mixnet/benchmarks/run_local_benchmarks.sh` and
 `go run ./mixnet/benchmarks/cmd/mixnet-bench`.
 
 These timestamped run directories are intentionally local-only and are ignored

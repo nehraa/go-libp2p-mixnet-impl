@@ -12,9 +12,14 @@ mixnet-test/docker-compose.test.yml
 mixnet-test/docker-compose.generated.yml
 .claude-flow/
 .githooks/
-.github/
+.github/*
+!.github/workflows/
+!.github/workflows/**
 .swarm/
 .mcp.json
 .worktrees
 .aider*
 mixnet-bench
+mixnet/.claude/
+mixnet/tests/__pycache__/
+mixnet/tests/*.pyc
