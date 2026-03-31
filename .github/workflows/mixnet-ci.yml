@@ -1,4 +1,4 @@
-name: Mixnet CI
+name: Network CI
 
 on:
   push:
@@ -12,6 +12,35 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  hub-validation:
+    name: Hub Validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - name: Vet hub package
+        run: go vet ./p2p/hub/...
+
+      - name: Run repeated hub tests
+        run: go test -shuffle=on -count=10 ./p2p/hub/...
+
+      - name: Run hub race tests
+        run: go test -race ./p2p/hub/...
+
+      - name: Enforce hub coverage floor
+        run: |
+          go test -count=1 -coverprofile=/tmp/hub-cover.out ./p2p/hub/...
+          total=$(go tool cover -func=/tmp/hub-cover.out | awk '/^total:/ {gsub("%", "", $3); print $3}')
+          awk -v total="$total" 'BEGIN { if (total+0 < 85.0) { exit 1 } }'
+
   go-tests:
     name: Go Test Suite
     runs-on: ubuntu-latest
