@@ -41,10 +41,10 @@ jobs:
           total=$(go tool cover -func=/tmp/hub-cover.out | awk '/^total:/ {gsub("%", "", $3); print $3}')
           awk -v total="$total" 'BEGIN { if (total+0 < 85.0) { exit 1 } }'
 
-  go-tests:
-    name: Go Test Suite
+  repo-validation:
+    name: Repo Validation
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -55,8 +55,11 @@ jobs:
           go-version-file: go.mod
           cache-dependency-path: go.sum
 
-      - name: Run mixnet Go tests
-        run: go test -count=1 ./mixnet/...
+      - name: Vet repository
+        run: go vet ./...
+
+      - name: Run repository Go tests
+        run: go test -count=1 ./...
 
   benchmark-smoke:
     name: Benchmark Smoke
