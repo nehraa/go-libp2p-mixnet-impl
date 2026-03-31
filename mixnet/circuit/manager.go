@@ -67,7 +67,6 @@ type CircuitManager struct {
 	host      host.Host
 	streams   map[string]*StreamHandler
 	mu        sync.RWMutex
-	wg        sync.WaitGroup
 	ctx       context.Context
 	cancel    context.CancelFunc
 }
@@ -565,11 +564,7 @@ func (m *CircuitManager) DetectFailure(circuitID string) bool {
 		return false
 	}
 	heartbeatTimeout := 30 * time.Second
-	if time.Since(lastHeartbeat) > heartbeatTimeout {
-		return true
-	}
-
-	return false
+	return time.Since(lastHeartbeat) > heartbeatTimeout
 }
 
 // StartHeartbeat begins periodically refreshing the circuit heartbeat timestamp

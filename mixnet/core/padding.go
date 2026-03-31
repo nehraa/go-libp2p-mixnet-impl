@@ -8,13 +8,6 @@ import (
 
 const lengthPrefixSize = 8
 
-func addLengthPrefix(payload []byte) []byte {
-	buf := make([]byte, lengthPrefixSize+len(payload))
-	binary.LittleEndian.PutUint64(buf[:lengthPrefixSize], uint64(len(payload)))
-	copy(buf[lengthPrefixSize:], payload)
-	return buf
-}
-
 func addLengthPrefixWithLen(payload []byte, origLen int) []byte {
 	buf := make([]byte, lengthPrefixSize+len(payload))
 	binary.LittleEndian.PutUint64(buf[:lengthPrefixSize], uint64(origLen))

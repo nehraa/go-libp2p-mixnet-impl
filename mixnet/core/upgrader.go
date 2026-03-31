@@ -1315,19 +1315,6 @@ func (m *Mixnet) parseShardPayload(data []byte) (string, *ces.Shard, []byte, []b
 	}, header.KeyData, header.AuthTag, int(header.TotalShards), nil
 }
 
-// parseShard parses shard data from the stream.
-func (m *Mixnet) parseShard(data []byte) (*ces.Shard, error) {
-	if len(data) < 4 {
-		return &ces.Shard{Index: 0, Data: data}, nil
-	}
-
-	index := int(uint32(data[0]) | uint32(data[1])<<8 | uint32(data[2])<<16 | uint32(data[3])<<24)
-	return &ces.Shard{
-		Index: index,
-		Data:  data[4:],
-	}, nil
-}
-
 func (h *DestinationHandler) StoreSessionSetup(baseSessionID string, keyData []byte) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -1379,14 +1366,6 @@ func (h *DestinationHandler) sessionKeyFor(sessionID string) (sessionKey, bool) 
 	}
 	key, ok := h.setupKeys[baseSessionID(sessionID)]
 	return key, ok
-}
-
-func (h *DestinationHandler) sessionKeyDataFor(sessionID string) ([]byte, bool) {
-	if keyData, ok := h.keyData[sessionID]; ok {
-		return keyData, true
-	}
-	keyData, ok := h.setupKeyData[baseSessionID(sessionID)]
-	return keyData, ok
 }
 
 func (h *DestinationHandler) inlineKeyDataFor(sessionID string) ([]byte, bool) {

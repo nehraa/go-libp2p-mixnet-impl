@@ -12,11 +12,6 @@ import (
 	"golang.org/x/crypto/chacha20poly1305"
 )
 
-const (
-	// nonceSize is the nonce size for ChaCha20-Poly1305 (12 bytes)
-	nonceSize = 12
-)
-
 // LayeredEncrypter implements multi-layer onion encryption for mixnet traffic.
 // Uses ChaCha20-Poly1305 - the EXACT SAME CIPHER that libp2p's Noise protocol uses internally.
 // This is maximum code reuse from libp2p's crypto stack - Req 1.5, 3.3

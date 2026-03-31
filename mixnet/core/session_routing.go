@@ -98,35 +98,6 @@ func buildSessionSetupFrameControlParts(baseSessionID string, mode sessionRouteM
 	return buf, keyPrefix, nil
 }
 
-func decodeSessionSetupFramePayload(data []byte) (string, sessionRouteMode, []byte, []byte, error) {
-	if len(data) < 1 {
-		return "", 0, nil, nil, fmt.Errorf("session setup payload too short")
-	}
-	baseLen := int(data[0])
-	offset := 1
-	if len(data) < offset+baseLen+1+4 {
-		return "", 0, nil, nil, fmt.Errorf("session setup payload truncated")
-	}
-	baseID := string(data[offset : offset+baseLen])
-	offset += baseLen
-	mode := sessionRouteMode(data[offset])
-	offset++
-	headerLen := int(binary.LittleEndian.Uint32(data[offset:]))
-	offset += 4
-	if headerLen < 0 || len(data) < offset+headerLen+4 {
-		return "", 0, nil, nil, fmt.Errorf("invalid session setup header length")
-	}
-	encryptedHeader := append([]byte(nil), data[offset:offset+headerLen]...)
-	offset += headerLen
-	keyLen := int(binary.LittleEndian.Uint32(data[offset:]))
-	offset += 4
-	if keyLen < 0 || len(data) < offset+keyLen {
-		return "", 0, nil, nil, fmt.Errorf("invalid session setup key length")
-	}
-	keyData := append([]byte(nil), data[offset:offset+keyLen]...)
-	return baseID, mode, encryptedHeader, keyData, nil
-}
-
 func encodeSessionSetupDeliveryPayload(baseSessionID string, keyData []byte) ([]byte, error) {
 	return encodeSessionCloseFramePayloadWithKey(baseSessionID, keyData)
 }

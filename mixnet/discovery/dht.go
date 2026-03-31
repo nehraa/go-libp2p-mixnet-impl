@@ -188,24 +188,6 @@ func (r *RelayDiscovery) filterPeers(peers []peer.AddrInfo) []peer.AddrInfo {
 	return result
 }
 
-// filterByProtocol filters peers that advertise the mixnet protocol.
-// This is a SECURITY fix - prevents selecting malicious non-mixnet peers.
-func (r *RelayDiscovery) filterByProtocol(peers []peer.AddrInfo) ([]peer.AddrInfo, error) {
-	if r.host == nil {
-		return peers, nil // Can't verify without host
-	}
-
-	var result []peer.AddrInfo
-	for _, p := range peers {
-		supported, err := r.host.Peerstore().SupportsProtocols(p.ID, protocol.ID(r.protocolID))
-		if err != nil || len(supported) == 0 {
-			continue
-		}
-		result = append(result, p)
-	}
-	return result, nil
-}
-
 func (r *RelayDiscovery) selectRandom(peers []peer.AddrInfo, count int) ([]RelayInfo, error) {
 	if len(peers) < count {
 		return nil, fmt.Errorf("insufficient peers: have %d, need %d", len(peers), count)

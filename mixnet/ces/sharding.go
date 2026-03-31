@@ -10,7 +10,8 @@ import (
 
 var shardDataPool = sync.Pool{
 	New: func() any {
-		return make([][]byte, 0, 32)
+		buf := make([][]byte, 0, 32)
+		return &buf
 	},
 }
 
@@ -19,8 +20,10 @@ func borrowShardDataScratch(size int) ([][]byte, func()) {
 		return nil, func() {}
 	}
 
-	buf := shardDataPool.Get().([][]byte)
+	bufPtr := shardDataPool.Get().(*[][]byte)
+	buf := *bufPtr
 	if cap(buf) < size {
+		shardDataPool.Put(bufPtr)
 		return make([][]byte, size), func() {}
 	}
 
@@ -33,7 +36,8 @@ func borrowShardDataScratch(size int) ([][]byte, func()) {
 		for i := range buf {
 			buf[i] = nil
 		}
-		shardDataPool.Put(buf[:0])
+		*bufPtr = buf[:0]
+		shardDataPool.Put(bufPtr)
 	}
 }
 

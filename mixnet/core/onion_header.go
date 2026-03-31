@@ -104,26 +104,3 @@ func buildHeaderOnlyFrameHeader(circuitID string, encryptedHeaderLen int, payloa
 	binary.LittleEndian.PutUint32(buf[pos:], uint32(encryptedHeaderLen))
 	return buf, nil
 }
-
-// encodeHeaderOnlyFrame builds the full header-only wire frame in a single
-// allocation.
-//
-// The payload bytes are copied once at the sender into the outbound frame and
-// then treated as stream-through data by intermediate relays. Header-only
-// relays decrypt and replace only the onion header; they do not rebuild a new
-// full [header][payload] buffer on every hop.
-//
-// Format: [circuit_id_len][circuit_id][version][payload_len][header_len][encrypted_header][payload]
-func encodeHeaderOnlyFrame(circuitID string, encryptedHeader []byte, payload []byte) ([]byte, error) {
-	prefix, err := buildHeaderOnlyFrameHeader(circuitID, len(encryptedHeader), len(payload))
-	if err != nil {
-		return nil, err
-	}
-	buf := make([]byte, len(prefix)+len(encryptedHeader)+len(payload))
-	copy(buf, prefix)
-	pos := len(prefix)
-	copy(buf[pos:], encryptedHeader)
-	pos += len(encryptedHeader)
-	copy(buf[pos:], payload)
-	return buf, nil
-}

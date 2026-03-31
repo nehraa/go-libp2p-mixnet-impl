@@ -153,7 +153,6 @@ type RelayInfo struct {
 	BytesForwarded int64
 	// LastActivity is the timestamp of the last data movement.
 	LastActivity time.Time
-	mu           sync.Mutex
 }
 
 // Handler manages all active relay streams and enforces resource limits.
@@ -1219,50 +1218,6 @@ func (h *Handler) forwardByAddressEncrypted(ctx context.Context, addr string, ci
 	return err
 }
 
-func (h *Handler) forwardByAddressHeaderOnlyEncrypted(ctx context.Context, addr string, circuitID string, encryptedHeader []byte, dataPayload []byte, protoID string) error {
-	h.mu.RLock()
-	host := h.host
-	maxBandwidth := h.maxBandwidth
-	waitBandwidth := h.waitBandwidth
-	recordBandwidth := h.recordBandwidth
-	h.mu.RUnlock()
-
-	if host == nil {
-		return fmt.Errorf("no host configured")
-	}
-
-	addrInfo, err := peer.AddrInfoFromString(addr)
-	if err != nil {
-		return fmt.Errorf("failed to parse address: %w", err)
-	}
-
-	connectCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
-	if err := host.Connect(connectCtx, *addrInfo); err != nil {
-		return fmt.Errorf("failed to connect to %s: %w", addr, err)
-	}
-
-	dst, err := host.NewStream(ctx, addrInfo.ID, protocol.ID(protoID))
-	if err != nil {
-		return fmt.Errorf("failed to open stream: %w", err)
-	}
-	defer dst.Close()
-	if flusher, ok := dst.(interface{ Flush() error }); ok {
-		if err := flusher.Flush(); err != nil {
-			_ = dst.Reset()
-			return fmt.Errorf("failed to negotiate stream: %w", err)
-		}
-	}
-
-	var writer io.Writer = dst
-	if maxBandwidth > 0 {
-		writer = &rateLimitedWriter{w: dst, bytesPerSec: maxBandwidth}
-	}
-
-	_, err = writeHeaderOnlyFrame(ctx, writer, circuitID, encryptedHeader, dataPayload, waitBandwidth, recordBandwidth)
-	return err
-}
-
 func (h *Handler) forwardByAddressHeaderOnlyStreaming(ctx context.Context, reader *bufio.Reader, addr string, circuitID string, encryptedHeader []byte, dataPayloadLen int, protoID string, waitBandwidth func(context.Context, int64) error, recordBandwidth func(string, int64), maxBandwidth int64) error {
 	h.mu.RLock()
 	host := h.host
@@ -1474,28 +1429,6 @@ func writeEncryptedFrame(ctx context.Context, w io.Writer, circuitID string, ver
 	return hn + pn, err
 }
 
-func writeHeaderOnlyFrame(ctx context.Context, w io.Writer, circuitID string, encryptedHeader []byte, dataPayload []byte, waitBandwidth func(context.Context, int64) error, recordBandwidth func(string, int64)) (int, error) {
-	if len(circuitID) == 0 || len(circuitID) > 255 {
-		return 0, fmt.Errorf("invalid circuit id")
-	}
-	if len(encryptedHeader) == 0 {
-		return 0, fmt.Errorf("missing header-only header")
-	}
-	payloadLen := 4 + len(encryptedHeader) + len(dataPayload)
-	maxPayloadSize := MaxEncryptedPayloadSize()
-	if payloadLen > maxPayloadSize {
-		return 0, fmt.Errorf("payload too large: %d bytes exceeds limit of %d", payloadLen, maxPayloadSize)
-	}
-
-	total, err := writeHeaderOnlyFramePrefix(ctx, w, circuitID, encryptedHeader, len(dataPayload), waitBandwidth, recordBandwidth)
-	if err != nil {
-		return total, err
-	}
-	n, err := writePayloadWithBandwidth(ctx, w, dataPayload, writeChunkSize, waitBandwidth, recordBandwidth)
-	total += n
-	return total, err
-}
-
 func writeHeaderOnlyFramePrefix(ctx context.Context, w io.Writer, circuitID string, encryptedHeader []byte, dataPayloadLen int, waitBandwidth func(context.Context, int64) error, recordBandwidth func(string, int64)) (int, error) {
 	if len(circuitID) == 0 || len(circuitID) > 255 {
 		return 0, fmt.Errorf("invalid circuit id")
@@ -1621,29 +1554,6 @@ func writePayloadWithBandwidth(ctx context.Context, w io.Writer, payload []byte,
 	return total, nil
 }
 
-func writeAllChunked(w io.Writer, payload []byte, chunkSize int) (int, error) {
-	if chunkSize <= 0 {
-		chunkSize = len(payload)
-	}
-	total := 0
-	for len(payload) > 0 {
-		chunk := payload
-		if len(chunk) > chunkSize {
-			chunk = chunk[:chunkSize]
-		}
-		n, err := w.Write(chunk)
-		total += n
-		if err != nil {
-			return total, err
-		}
-		if n <= 0 {
-			return total, fmt.Errorf("short write")
-		}
-		payload = payload[n:]
-	}
-	return total, nil
-}
-
 func decryptHopPayload(key []byte, payload []byte, allowInPlace bool) ([]byte, error) {
 	if len(payload) < nonceSize {
 		return nil, fmt.Errorf("payload too short")
@@ -1689,27 +1599,6 @@ func parseHopPayload(plaintext []byte) (bool, string, []byte, error) {
 	nextHop := string(plaintext[3 : 3+nextLen])
 	inner := plaintext[3+nextLen:]
 	return isFinal, nextHop, inner, nil
-}
-
-func parseHeaderOnlyPayload(payload []byte) ([]byte, []byte, error) {
-	if len(payload) < 4 {
-		return nil, nil, fmt.Errorf("header-only payload too short")
-	}
-	headerLen := int(binary.LittleEndian.Uint32(payload[:4]))
-	if headerLen <= 0 || len(payload) < 4+headerLen {
-		return nil, nil, fmt.Errorf("invalid header length")
-	}
-	encryptedHeader := payload[4 : 4+headerLen]
-	data := payload[4+headerLen:]
-	return encryptedHeader, data, nil
-}
-
-func buildHeaderOnlyPayload(encryptedHeader []byte, payload []byte) []byte {
-	buf := make([]byte, 4+len(encryptedHeader)+len(payload))
-	binary.LittleEndian.PutUint32(buf[:4], uint32(len(encryptedHeader)))
-	copy(buf[4:], encryptedHeader)
-	copy(buf[4+len(encryptedHeader):], payload)
-	return buf
 }
 
 // HandleKeyExchange registers hop keys for a circuit using a Noise XX handshake.

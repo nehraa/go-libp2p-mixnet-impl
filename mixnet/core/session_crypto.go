@@ -224,10 +224,6 @@ func decryptSessionPayload(ciphertext []byte, key sessionKey) ([]byte, error) {
 	return decryptSessionPayloadWithKey(ciphertext, key, "")
 }
 
-func decryptSessionShardPayload(ciphertext []byte, key sessionKey, shardIndex int) ([]byte, error) {
-	return decryptSessionShardPayloadWithKey(ciphertext, key, shardIndex, "")
-}
-
 func newSessionKey(mode byte) (sessionKey, error) {
 	key := make([]byte, sessionKeySize)
 	nonce := make([]byte, sessionNonceSize)

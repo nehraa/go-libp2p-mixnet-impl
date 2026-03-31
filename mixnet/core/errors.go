@@ -132,7 +132,7 @@ func IsRetryable(err error) bool {
 	}
 
 	// Also check wrapped errors
-	return errors.Is(err, contextDeadlineExceeded) || errors.Is(err, contextCanceled)
+	return errors.Is(err, errContextDeadlineExceeded) || errors.Is(err, errContextCanceled)
 }
 
 // IsFatal returns true if the error is non-recoverable and should not be retried.
@@ -165,6 +165,6 @@ var (
 
 // Internal sentinel errors for context-related failures.
 var (
-	contextCanceled         = errors.New("context canceled")
-	contextDeadlineExceeded = errors.New("context deadline exceeded")
+	errContextCanceled         = errors.New("context canceled")
+	errContextDeadlineExceeded = errors.New("context deadline exceeded")
 )

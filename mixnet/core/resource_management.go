@@ -221,11 +221,7 @@ func (rm *ResourceManager) CanSend(bytes int64) bool {
 
 	// Check if adding these bytes would exceed limit
 	projected := rm.currentBandwidth + bytes
-	if projected > rm.config.MaxBandwidthBytesPerSec {
-		return false
-	}
-
-	return true
+	return projected <= rm.config.MaxBandwidthBytesPerSec
 }
 
 // WaitForBandwidth waits until bandwidth is available (AC 20.4 - Backpressure).

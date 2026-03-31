@@ -153,10 +153,6 @@ func prepareHopAEADs(hopKeys [][]byte) ([]cipher.AEAD, error) {
 	return hopAEADs, nil
 }
 
-func encodeEncryptedFrame(circuitID string, payload []byte) ([]byte, error) {
-	return encodeEncryptedFrameWithVersion(circuitID, frameVersionFullOnion, payload)
-}
-
 func buildEncryptedFrameHeader(circuitID string, version byte, payloadLen int) ([]byte, error) {
 	if len(circuitID) == 0 || len(circuitID) > 255 {
 		return nil, fmt.Errorf("invalid circuit id")

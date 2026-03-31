@@ -2634,25 +2634,3 @@ func waitPeer(t *testing.T, ch <-chan peer.ID, timeout time.Duration) peer.ID {
 		return ""
 	}
 }
-
-func waitHeader(t *testing.T, ch <-chan *PrivacyShardHeader, timeout time.Duration) *PrivacyShardHeader {
-	t.Helper()
-	select {
-	case header := <-ch:
-		return header
-	case <-time.After(timeout):
-		t.Fatal("timeout waiting for forwarded header")
-		return nil
-	}
-}
-
-func parseHeaderOnlyPayloadForTest(packet []byte) ([]byte, []byte, error) {
-	if len(packet) < 4 {
-		return nil, nil, errors.New("payload too short")
-	}
-	headerLen := int(binary.LittleEndian.Uint32(packet[:4]))
-	if len(packet) < 4+headerLen {
-		return nil, nil, errors.New("invalid header length")
-	}
-	return packet[4 : 4+headerLen], packet[4+headerLen:], nil
-}
