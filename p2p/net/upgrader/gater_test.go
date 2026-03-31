@@ -15,6 +15,9 @@ type testGater struct {
 	sync.Mutex
 
 	blockAccept, blockSecured bool
+	blockPeerDial             bool
+	blockAddrDial             bool
+	blockUpgraded             bool
 }
 
 var _ connmgr.ConnectionGater = (*testGater)(nil)
@@ -33,12 +36,39 @@ func (t *testGater) BlockSecured(block bool) {
 	t.blockSecured = block
 }
 
+func (t *testGater) BlockPeerDial(block bool) {
+	t.Lock()
+	defer t.Unlock()
+
+	t.blockPeerDial = block
+}
+
+func (t *testGater) BlockAddrDial(block bool) {
+	t.Lock()
+	defer t.Unlock()
+
+	t.blockAddrDial = block
+}
+
+func (t *testGater) BlockUpgraded(block bool) {
+	t.Lock()
+	defer t.Unlock()
+
+	t.blockUpgraded = block
+}
+
 func (t *testGater) InterceptPeerDial(_ peer.ID) (allow bool) {
-	panic("not implemented")
+	t.Lock()
+	defer t.Unlock()
+
+	return !t.blockPeerDial
 }
 
 func (t *testGater) InterceptAddrDial(_ peer.ID, _ ma.Multiaddr) (allow bool) {
-	panic("not implemented")
+	t.Lock()
+	defer t.Unlock()
+
+	return !t.blockAddrDial
 }
 
 func (t *testGater) InterceptAccept(_ network.ConnMultiaddrs) (allow bool) {
@@ -56,5 +86,8 @@ func (t *testGater) InterceptSecured(_ network.Direction, _ peer.ID, _ network.C
 }
 
 func (t *testGater) InterceptUpgraded(_ network.Conn) (allow bool, reason control.DisconnectReason) {
-	panic("not implemented")
+	t.Lock()
+	defer t.Unlock()
+
+	return !t.blockUpgraded, 0
 }

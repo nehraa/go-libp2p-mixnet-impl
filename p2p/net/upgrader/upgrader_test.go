@@ -161,6 +161,26 @@ func TestOutboundConnectionGating(t *testing.T) {
 	require.Nil(conn)
 }
 
+func TestTestGaterDialHooks(t *testing.T) {
+	tg := &testGater{}
+
+	require.True(t, tg.InterceptPeerDial(""))
+	require.True(t, tg.InterceptAddrDial("", ma.StringCast("/ip4/127.0.0.1/tcp/1")))
+	allow, reason := tg.InterceptUpgraded(nil)
+	require.True(t, allow)
+	require.Zero(t, reason)
+
+	tg.BlockPeerDial(true)
+	tg.BlockAddrDial(true)
+	tg.BlockUpgraded(true)
+
+	require.False(t, tg.InterceptPeerDial(""))
+	require.False(t, tg.InterceptAddrDial("", ma.StringCast("/ip4/127.0.0.1/tcp/1")))
+	allow, reason = tg.InterceptUpgraded(nil)
+	require.False(t, allow)
+	require.Zero(t, reason)
+}
+
 func TestOutboundResourceManagement(t *testing.T) {
 	t.Run("successful handshake", func(t *testing.T) {
 		id, upgrader := createUpgrader(t)
