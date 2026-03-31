@@ -28,6 +28,30 @@ func TestNewRejectsInvalidConfig(t *testing.T) {
 	require.ErrorIs(t, err, ErrInvalidConfig)
 }
 
+func TestNewRejectsInvalidConfigValues(t *testing.T) {
+	mn, h1, _ := newMockHosts(t)
+	defer mn.Close()
+
+	testCases := []struct {
+		name string
+		cfg  Config
+	}{
+		{name: "negative ping interval", cfg: Config{ProtocolID: testProtocol, PingInterval: -time.Second}},
+		{name: "non-positive ping timeout", cfg: Config{ProtocolID: testProtocol, PingTimeout: -time.Second}},
+		{name: "negative event buffer", cfg: Config{ProtocolID: testProtocol, EventBufferSize: -1}},
+		{name: "negative metrics buffer", cfg: Config{ProtocolID: testProtocol, MetricsBufferSize: -1}},
+		{name: "negative read buffer", cfg: Config{ProtocolID: testProtocol, ReadBufferSize: -1}},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := New(h1, tc.cfg)
+			require.Error(t, err)
+			require.ErrorIs(t, err, ErrInvalidConfig)
+		})
+	}
+}
+
 func TestCreateReceptorRejectsDuplicatePeerBinding(t *testing.T) {
 	mn, h1, h2 := newMockHosts(t)
 	defer mn.Close()
@@ -46,6 +70,27 @@ func TestCreateReceptorRejectsDuplicatePeerBinding(t *testing.T) {
 	require.Nil(t, duplicate)
 	require.Error(t, err)
 	require.ErrorIs(t, err, ErrDuplicatePeerBinding)
+}
+
+func TestReceptorPeerAndSnapshotsExposeBoundPeer(t *testing.T) {
+	mn, h1, h2 := newMockHosts(t)
+	defer mn.Close()
+
+	hub1, err := New(h1, Config{ProtocolID: testProtocol})
+	require.NoError(t, err)
+	defer hub1.Close()
+
+	hub2, err := New(h2, Config{ProtocolID: testProtocol})
+	require.NoError(t, err)
+	defer hub2.Close()
+
+	receptor1, _ := createPairedReceptors(t, hub1, hub2, h1, h2)
+	require.Equal(t, h2.ID(), receptor1.Peer())
+
+	snapshots := hub1.Snapshots()
+	require.Len(t, snapshots, 1)
+	require.Equal(t, receptor1.ID(), snapshots[0].ReceptorID)
+	require.Equal(t, h2.ID(), snapshots[0].PeerID)
 }
 
 func TestCreateReceptorRejectsSelfBinding(t *testing.T) {
@@ -143,9 +188,10 @@ func TestHandleStreamRejectsUnknownPeer(t *testing.T) {
 	defer hub.Close()
 
 	stream, err := h2.NewStream(context.Background(), h1.ID(), testProtocol)
-	require.NoError(t, err)
-	defer stream.Close()
-	_, _ = stream.Write([]byte("x"))
+	if err == nil {
+		defer stream.Close()
+		_, _ = stream.Write([]byte("x"))
+	}
 
 	errEvent := waitForEvent(t, hub.Events(), 2*time.Second, func(evt Event) bool {
 		return evt.Kind == EventKindError && evt.PeerID == h2.ID()
@@ -258,8 +304,24 @@ func createPairedReceptors(t *testing.T, hub1, hub2 *Hub, h1, h2 host.Host) (*Re
 		require.NoError(t, err)
 	}
 
-	waitForActiveStream(t, hub1, receptor1.ID(), func() { _ = hub1.OpenStream(context.Background(), receptor1.ID()) })
-	waitForActiveStream(t, hub2, receptor2.ID(), func() {})
+	waitForNoActiveStream(t, hub1, receptor1.ID())
+	waitForNoActiveStream(t, hub2, receptor2.ID())
+
+	initiatorHub := hub1
+	initiatorReceptor := receptor1
+	acceptorHub := hub2
+	acceptorReceptor := receptor2
+	if receptor1.preferredDirection() != network.DirOutbound {
+		initiatorHub = hub2
+		initiatorReceptor = receptor2
+		acceptorHub = hub1
+		acceptorReceptor = receptor1
+	}
+
+	waitForActiveStream(t, initiatorHub, initiatorReceptor.ID(), func() {
+		_ = initiatorHub.OpenStream(context.Background(), initiatorReceptor.ID())
+	})
+	waitForActiveStream(t, acceptorHub, acceptorReceptor.ID(), func() {})
 	return receptor1, receptor2
 }
 
@@ -284,6 +346,21 @@ func waitForActiveStream(t *testing.T, hub *Hub, id ReceptorID, tick func()) Sna
 		}
 		snapshot = current
 		return snapshot.HasActiveStream
+	}, 2*time.Second, 20*time.Millisecond)
+	return snapshot
+}
+
+func waitForNoActiveStream(t *testing.T, hub *Hub, id ReceptorID) Snapshot {
+	t.Helper()
+
+	var snapshot Snapshot
+	require.Eventually(t, func() bool {
+		current, err := hub.Snapshot(id)
+		if err != nil {
+			return false
+		}
+		snapshot = current
+		return !snapshot.HasActiveStream
 	}, 2*time.Second, 20*time.Millisecond)
 	return snapshot
 }
