@@ -2,6 +2,7 @@ package rate
 
 import (
 	"fmt"
+	"math"
 	"net/netip"
 	"testing"
 	"time"
@@ -24,15 +25,23 @@ func getSleepDurationAndRequestCount(rps float64) (time.Duration, int) {
 	return sleepDuration, requestCount
 }
 
-func assertLimiter(t *testing.T, rl *Limiter, ipAddr netip.Addr, allowed, errorMargin int) {
+func assertLimiter(t *testing.T, rl *Limiter, ipAddr netip.Addr, expectedMin, slack int, rps float64) {
 	t.Helper()
-	for range allowed {
-		require.True(t, rl.Allow(ipAddr))
+
+	start := time.Now()
+	allowed := 0
+	for rl.Allow(ipAddr) {
+		allowed++
 	}
-	for range errorMargin {
-		rl.Allow(ipAddr)
+
+	if rps > 0 {
+		// High-RPS limiters can refill while we are draining the bucket in the test.
+		// Account for tokens that could have been added during the assertion loop.
+		slack += int(math.Ceil(time.Since(start).Seconds() * rps))
 	}
-	require.False(t, rl.Allow(ipAddr))
+
+	require.GreaterOrEqual(t, allowed, expectedMin)
+	require.LessOrEqual(t, allowed, expectedMin+slack)
 }
 
 func TestLimiterGlobal(t *testing.T) {
@@ -56,10 +65,10 @@ func TestLimiterGlobal(t *testing.T) {
 				}
 				return
 			}
-			assertLimiter(t, rl, addr, limit.Burst, int(limit.RPS*rateLimitErrorTolerance))
+			assertLimiter(t, rl, addr, limit.Burst, int(limit.RPS*rateLimitErrorTolerance), limit.RPS)
 			sleepDuration, requestCount := getSleepDurationAndRequestCount(limit.RPS)
 			time.Sleep(sleepDuration)
-			assertLimiter(t, rl, addr, requestCount, int(float64(requestCount)*rateLimitErrorTolerance))
+			assertLimiter(t, rl, addr, requestCount, int(float64(requestCount)*rateLimitErrorTolerance), limit.RPS)
 		})
 	}
 }
@@ -78,7 +87,7 @@ func TestLimiterNetworkPrefix(t *testing.T) {
 		require.True(t, rl.Allow(local))
 	}
 	// rate limit public ips
-	assertLimiter(t, rl, public, rl.GlobalLimit.Burst, int(rl.GlobalLimit.RPS*rateLimitErrorTolerance))
+	assertLimiter(t, rl, public, rl.GlobalLimit.Burst, int(rl.GlobalLimit.RPS*rateLimitErrorTolerance), rl.GlobalLimit.RPS)
 
 	// public ip rejected
 	require.False(t, rl.Allow(public))
