@@ -44,7 +44,7 @@ It compares:
 
 The default quick sizes are:
 
-- `16MB,32MB,64MB,128MB,256MB,512MB,1GB`
+- `16MB,32MB,64MB,128MB,256MB,512MB`
 
 The report focuses on:
 
