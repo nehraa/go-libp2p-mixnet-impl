@@ -1835,9 +1835,7 @@ func registerProtocols(hosts []host.Host, target peer.ID, addrs []multiaddr.Mult
 }
 
 func cloneConfig(cfg *mixnet.MixnetConfig) *mixnet.MixnetConfig {
-	cp := *cfg
-	cp.PayloadPaddingBuckets = append([]int(nil), cfg.PayloadPaddingBuckets...)
-	return &cp
+	return cfg.Clone()
 }
 
 func summarizeRuns(records []*runRecord) ([]summaryRecord, error) {

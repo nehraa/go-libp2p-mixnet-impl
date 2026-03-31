@@ -556,6 +556,39 @@ func (c *MixnetConfig) GetSamplingSize() int {
 	return c.SamplingSize
 }
 
+// Clone returns a detached copy of the configuration without sharing the
+// internal mutex or backing slices with the original.
+func (c *MixnetConfig) Clone() *MixnetConfig {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return &MixnetConfig{
+		locked:                  c.locked,
+		HopCount:                c.HopCount,
+		CircuitCount:            c.CircuitCount,
+		Compression:             c.Compression,
+		ErasureThreshold:        c.ErasureThreshold,
+		UseCESPipeline:          c.UseCESPipeline,
+		UseCSE:                  c.UseCSE,
+		HeaderPaddingEnabled:    c.HeaderPaddingEnabled,
+		HeaderPaddingMin:        c.HeaderPaddingMin,
+		HeaderPaddingMax:        c.HeaderPaddingMax,
+		PayloadPaddingStrategy:  c.PayloadPaddingStrategy,
+		PayloadPaddingMin:       c.PayloadPaddingMin,
+		PayloadPaddingMax:       c.PayloadPaddingMax,
+		PayloadPaddingBuckets:   append([]int(nil), c.PayloadPaddingBuckets...),
+		EnableAuthTag:           c.EnableAuthTag,
+		AuthTagSize:             c.AuthTagSize,
+		EnableSessionRouting:    c.EnableSessionRouting,
+		SessionRouteIdleTimeout: c.SessionRouteIdleTimeout,
+		SelectionMode:           c.SelectionMode,
+		SamplingSize:            c.SamplingSize,
+		RandomnessFactor:        c.RandomnessFactor,
+		MaxJitter:               c.MaxJitter,
+		EncryptionMode:          c.EncryptionMode,
+	}
+}
+
 // ErrConfigValidation is returned when config validation fails.
 var ErrConfigValidation = errors.New("config validation failed")
 

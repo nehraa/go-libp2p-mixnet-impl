@@ -2383,11 +2383,7 @@ func setupMixnetNetwork(t *testing.T, ctx context.Context, cfg *MixnetConfig, re
 }
 
 func cloneConfig(cfg *MixnetConfig) *MixnetConfig {
-	cp := *cfg
-	if cfg.PayloadPaddingBuckets != nil {
-		cp.PayloadPaddingBuckets = append([]int(nil), cfg.PayloadPaddingBuckets...)
-	}
-	return &cp
+	return cfg.Clone()
 }
 
 func newTestHost(t *testing.T) host.Host {
