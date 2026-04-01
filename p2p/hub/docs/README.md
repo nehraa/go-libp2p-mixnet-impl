@@ -9,6 +9,10 @@ real-time state reporting.
 Use this package when one libp2p node needs to manage many peer-specific
 bindings while keeping all policy decisions centralized in one hub manager.
 
+`New` refuses to start if the host already has an exact handler registered for
+the configured `ProtocolID`. Callers must pick a dedicated protocol ID for hub
+traffic.
+
 ## Public Surface
 
 - `New(host, Config)`: create a hub around an existing host
@@ -19,6 +23,8 @@ bindings while keeping all policy decisions centralized in one hub manager.
 - `Snapshot(id)` / `Snapshots()`: inspect current receptor state
 - `Events()`: bounded event stream for lifecycle and payload delivery
 - `Metrics()`: bounded metrics stream for observability and health monitoring
+- `Config.EventOverflowPolicy`: choose whether event-buffer overflow resets the
+  active stream or only drops the event
 
 See the other documents in this folder for lifecycle flow, observability, and
 test coverage.

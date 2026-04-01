@@ -15,14 +15,26 @@ const (
 	defaultReadBufferSize = 32 * 1024
 )
 
+// OverflowPolicy defines how the hub reacts when its event channel is full.
+type OverflowPolicy string
+
+const (
+	// OverflowPolicyResetStream preserves the current default behavior by
+	// resetting the active stream when a data event cannot be delivered.
+	OverflowPolicyResetStream OverflowPolicy = "reset_stream"
+	// OverflowPolicyDrop drops the event and keeps the active stream open.
+	OverflowPolicyDrop OverflowPolicy = "drop"
+)
+
 // Config defines hub behavior.
 type Config struct {
-	ProtocolID        protocol.ID
-	PingInterval      time.Duration
-	PingTimeout       time.Duration
-	EventBufferSize   int
-	MetricsBufferSize int
-	ReadBufferSize    int
+	ProtocolID          protocol.ID
+	PingInterval        time.Duration
+	PingTimeout         time.Duration
+	EventBufferSize     int
+	MetricsBufferSize   int
+	ReadBufferSize      int
+	EventOverflowPolicy OverflowPolicy
 }
 
 func normalizeConfig(cfg Config) (Config, error) {
@@ -58,6 +70,14 @@ func normalizeConfig(cfg Config) (Config, error) {
 	}
 	if cfg.ReadBufferSize <= 0 {
 		return Config{}, fmt.Errorf("%w: read buffer size must be positive", ErrInvalidConfig)
+	}
+	if cfg.EventOverflowPolicy == "" {
+		cfg.EventOverflowPolicy = OverflowPolicyResetStream
+	}
+	switch cfg.EventOverflowPolicy {
+	case OverflowPolicyResetStream, OverflowPolicyDrop:
+	default:
+		return Config{}, fmt.Errorf("%w: unsupported event overflow policy %q", ErrInvalidConfig, cfg.EventOverflowPolicy)
 	}
 	return cfg, nil
 }

@@ -2,7 +2,9 @@ package hub
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -18,6 +20,14 @@ import (
 )
 
 var log = logging.Logger("hub")
+
+type hubLifecycleState uint32
+
+const (
+	hubStateOpen hubLifecycleState = iota
+	hubStateClosing
+	hubStateClosed
+)
 
 // Hub manages receptors for a single host.
 type Hub struct {
@@ -36,6 +46,7 @@ type Hub struct {
 	closeOnce sync.Once
 	wg        sync.WaitGroup
 	nextID    atomic.Uint64
+	lifecycle atomic.Uint32
 	publishMu sync.RWMutex
 	closed    bool
 
@@ -53,6 +64,9 @@ func New(h host.Host, cfg Config) (*Hub, error) {
 	if err != nil {
 		return nil, err
 	}
+	if slices.Contains(h.Mux().Protocols(), normalized.ProtocolID) {
+		return nil, fmt.Errorf("%w: protocol %s", ErrProtocolHandlerConflict, normalized.ProtocolID)
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	hub := &Hub{
@@ -65,6 +79,7 @@ func New(h host.Host, cfg Config) (*Hub, error) {
 		receptorsByID:   make(map[ReceptorID]*Receptor),
 		receptorsByPeer: make(map[peer.ID]*Receptor),
 	}
+	hub.lifecycle.Store(uint32(hubStateOpen))
 
 	hub.notifiee = &network.NotifyBundle{
 		ConnectedF:    hub.handleConnected,
@@ -109,6 +124,9 @@ func (h *Hub) Metrics() <-chan MetricUpdate {
 // A non-nil receptor may be returned together with an error when the binding is
 // created successfully but the initial stream cannot be opened.
 func (h *Hub) CreateReceptor(ctx context.Context, target peer.AddrInfo) (*Receptor, error) {
+	if err := h.ensureOpen(); err != nil {
+		return nil, err
+	}
 	if target.ID == "" {
 		return nil, fmt.Errorf("%w: target peer id is required", ErrInvalidConfig)
 	}
@@ -120,6 +138,10 @@ func (h *Hub) CreateReceptor(ctx context.Context, target peer.AddrInfo) (*Recept
 	}
 
 	h.mu.Lock()
+	if h.lifecycleState() != hubStateOpen {
+		h.mu.Unlock()
+		return nil, ErrHubClosed
+	}
 	if _, exists := h.receptorsByPeer[target.ID]; exists {
 		h.mu.Unlock()
 		return nil, fmt.Errorf("%w: peer %s", ErrDuplicatePeerBinding, target.ID)
@@ -130,6 +152,11 @@ func (h *Hub) CreateReceptor(ctx context.Context, target peer.AddrInfo) (*Recept
 	h.receptorsByID[receptorID] = receptor
 	h.receptorsByPeer[target.ID] = receptor
 	h.mu.Unlock()
+
+	if err := h.ensureOpen(); err != nil {
+		h.rollbackReceptor(receptor)
+		return nil, err
+	}
 
 	snapshot := receptor.Snapshot()
 	h.emitEvent(Event{
@@ -149,6 +176,10 @@ func (h *Hub) CreateReceptor(ctx context.Context, target peer.AddrInfo) (*Recept
 	}()
 
 	if err := h.OpenStream(ctx, receptor.id); err != nil {
+		if errors.Is(err, ErrHubClosed) {
+			h.rollbackReceptor(receptor)
+			return nil, err
+		}
 		h.emitEvent(Event{
 			Kind:       EventKindError,
 			ReceptorID: receptor.id,
@@ -163,12 +194,20 @@ func (h *Hub) CreateReceptor(ctx context.Context, target peer.AddrInfo) (*Recept
 
 // OpenStream ensures the receptor has an outbound stream when needed.
 func (h *Hub) OpenStream(ctx context.Context, id ReceptorID) error {
+	if err := h.ensureOpen(); err != nil {
+		return err
+	}
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	opCtx, cancel := h.operationContext(ctx)
+	defer cancel()
 
 	receptor, err := h.receptorByID(id)
 	if err != nil {
+		if closeErr := h.ensureOpen(); closeErr != nil {
+			return closeErr
+		}
 		return err
 	}
 	if receptor.activeStreamPreferred() || receptor.hasActiveStream() {
@@ -180,7 +219,13 @@ func (h *Hub) OpenStream(ctx context.Context, id ReceptorID) error {
 		h.host.Peerstore().AddAddrs(receptor.target.ID, receptor.target.Addrs, peerstore.TempAddrTTL)
 	}
 
-	if err := h.host.Connect(ctx, receptor.target); err != nil {
+	if err := h.ensureOpen(); err != nil {
+		return err
+	}
+	if err := h.host.Connect(opCtx, receptor.target); err != nil {
+		if closeErr := h.ensureOpen(); closeErr != nil {
+			return closeErr
+		}
 		snapshot := receptor.recordConnectFailure(err)
 		openErr := fmt.Errorf("connect receptor %s to peer %s: %w", receptor.id, receptor.target.ID, err)
 		log.Warn("receptor connect failed", "receptor_id", receptor.id, "peer", receptor.target.ID, "err", err)
@@ -195,8 +240,14 @@ func (h *Hub) OpenStream(ctx context.Context, id ReceptorID) error {
 		return openErr
 	}
 
-	stream, err := h.host.NewStream(ctx, receptor.target.ID, h.cfg.ProtocolID)
+	if err := h.ensureOpen(); err != nil {
+		return err
+	}
+	stream, err := h.host.NewStream(opCtx, receptor.target.ID, h.cfg.ProtocolID)
 	if err != nil {
+		if closeErr := h.ensureOpen(); closeErr != nil {
+			return closeErr
+		}
 		snapshot := receptor.recordStreamOpenFailure(err)
 		openErr := fmt.Errorf("open receptor stream %s to peer %s: %w", receptor.id, receptor.target.ID, err)
 		log.Warn("receptor open stream failed", "receptor_id", receptor.id, "peer", receptor.target.ID, "err", err)
@@ -210,6 +261,10 @@ func (h *Hub) OpenStream(ctx context.Context, id ReceptorID) error {
 		h.publishMetric(MetricKindStreamOpenFailed, receptor, "", openErr)
 		return openErr
 	}
+	if err := h.ensureOpen(); err != nil {
+		_ = stream.Reset()
+		return err
+	}
 
 	replacement, err := receptor.attachOutbound(stream)
 	if err != nil {
@@ -219,6 +274,10 @@ func (h *Hub) OpenStream(ctx context.Context, id ReceptorID) error {
 		}
 		return err
 	}
+	if err := h.ensureOpen(); err != nil {
+		h.rollbackAttachedStream(receptor, replacement)
+		return err
+	}
 
 	h.finishStreamAttach(receptor, stream, replacement)
 	return nil
@@ -226,8 +285,14 @@ func (h *Hub) OpenStream(ctx context.Context, id ReceptorID) error {
 
 // ResetStream terminates a receptor's active stream without removing the receptor.
 func (h *Hub) ResetStream(id ReceptorID) error {
+	if err := h.ensureOpen(); err != nil {
+		return err
+	}
 	receptor, err := h.receptorByID(id)
 	if err != nil {
+		if closeErr := h.ensureOpen(); closeErr != nil {
+			return closeErr
+		}
 		return err
 	}
 
@@ -252,8 +317,14 @@ func (h *Hub) ResetStream(id ReceptorID) error {
 
 // RemoveReceptor removes a receptor and terminates its active stream.
 func (h *Hub) RemoveReceptor(id ReceptorID) error {
+	if err := h.ensureOpen(); err != nil {
+		return err
+	}
 	receptor, err := h.removeReceptor(id)
 	if err != nil {
+		if closeErr := h.ensureOpen(); closeErr != nil {
+			return closeErr
+		}
 		return err
 	}
 
@@ -276,8 +347,14 @@ func (h *Hub) RemoveReceptor(id ReceptorID) error {
 
 // Snapshot returns a receptor snapshot.
 func (h *Hub) Snapshot(id ReceptorID) (Snapshot, error) {
+	if err := h.ensureOpen(); err != nil {
+		return Snapshot{}, err
+	}
 	receptor, err := h.receptorByID(id)
 	if err != nil {
+		if closeErr := h.ensureOpen(); closeErr != nil {
+			return Snapshot{}, closeErr
+		}
 		return Snapshot{}, err
 	}
 	return receptor.Snapshot(), nil
@@ -285,6 +362,9 @@ func (h *Hub) Snapshot(id ReceptorID) (Snapshot, error) {
 
 // Snapshots returns all receptor snapshots.
 func (h *Hub) Snapshots() []Snapshot {
+	if h.lifecycleState() != hubStateOpen {
+		return nil
+	}
 	h.mu.RLock()
 	receptors := make([]*Receptor, 0, len(h.receptorsByID))
 	for _, receptor := range h.receptorsByID {
@@ -302,6 +382,8 @@ func (h *Hub) Snapshots() []Snapshot {
 // Close shuts the hub down and removes all receptors.
 func (h *Hub) Close() error {
 	h.closeOnce.Do(func() {
+		h.lifecycle.Store(uint32(hubStateClosing))
+		h.cancel()
 		h.host.RemoveStreamHandler(h.cfg.ProtocolID)
 		h.host.Network().StopNotify(h.notifiee)
 		if h.connectednessSub != nil {
@@ -350,6 +432,7 @@ func (h *Hub) Close() error {
 		close(h.events)
 		close(h.metrics)
 		h.publishMu.Unlock()
+		h.lifecycle.Store(uint32(hubStateClosed))
 		log.Debug("hub stopped", "peer", h.host.ID(), "protocol", h.cfg.ProtocolID)
 	})
 	return nil
@@ -405,6 +488,10 @@ func (h *Hub) runConnectednessLoop() {
 }
 
 func (h *Hub) handleStream(stream network.Stream) {
+	if h.lifecycleState() != hubStateOpen {
+		_ = stream.Reset()
+		return
+	}
 	receptor := h.receptorByPeerID(stream.Conn().RemotePeer())
 	if receptor == nil {
 		err := fmt.Errorf("peer %s has no receptor binding", stream.Conn().RemotePeer())
@@ -442,6 +529,10 @@ func (h *Hub) handleStream(stream network.Stream) {
 }
 
 func (h *Hub) finishStreamAttach(receptor *Receptor, stream network.Stream, replacement streamReplacement) {
+	if h.lifecycleState() != hubStateOpen {
+		h.rollbackAttachedStream(receptor, replacement)
+		return
+	}
 	if replacement.Replaced {
 		if err := replacement.Stream.Reset(); err != nil {
 			log.Warn("closing replaced receptor stream failed", "receptor_id", receptor.id, "peer", receptor.target.ID, "stream_id", replacement.StreamID, "err", err)
@@ -483,8 +574,6 @@ func (h *Hub) emitEvent(evt Event) bool {
 
 	evt.OccurredAt = nowOrExisting(evt.OccurredAt)
 	select {
-	case <-h.ctx.Done():
-		return false
 	case h.events <- evt:
 		return true
 	default:
@@ -502,8 +591,6 @@ func (h *Hub) emitMetric(update MetricUpdate) bool {
 
 	update.OccurredAt = nowOrExisting(update.OccurredAt)
 	select {
-	case <-h.ctx.Done():
-		return false
 	case h.metrics <- update:
 		return true
 	default:
@@ -533,7 +620,7 @@ func (h *Hub) handleEventOverflow(evt Event) {
 		return
 	}
 
-	snapshot, streamID, resetApplied, resetErr := receptor.handleEventOverflow(evt)
+	snapshot, streamID, resetApplied, resetErr := receptor.handleEventOverflow(evt, h.cfg.EventOverflowPolicy)
 	log.Warn(
 		"hub event buffer full",
 		"kind", evt.Kind,
@@ -551,7 +638,7 @@ func (h *Hub) handleEventOverflow(evt Event) {
 		Snapshot:   snapshot,
 		Err:        ErrEventBufferFull,
 	})
-	if !resetApplied {
+	if h.cfg.EventOverflowPolicy != OverflowPolicyResetStream || !resetApplied {
 		return
 	}
 
@@ -589,6 +676,52 @@ func nowOrExisting(value time.Time) time.Time {
 		return value
 	}
 	return time.Now()
+}
+
+func (h *Hub) lifecycleState() hubLifecycleState {
+	return hubLifecycleState(h.lifecycle.Load())
+}
+
+func (h *Hub) ensureOpen() error {
+	if h.lifecycleState() != hubStateOpen {
+		return ErrHubClosed
+	}
+	return nil
+}
+
+func (h *Hub) operationContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	opCtx, cancel := context.WithCancel(ctx)
+	stop := context.AfterFunc(h.ctx, cancel)
+	return opCtx, func() {
+		stop()
+		cancel()
+	}
+}
+
+func (h *Hub) rollbackReceptor(receptor *Receptor) {
+	if receptor == nil {
+		return
+	}
+
+	h.mu.Lock()
+	if current := h.receptorsByID[receptor.id]; current == receptor {
+		delete(h.receptorsByID, receptor.id)
+	}
+	if current := h.receptorsByPeer[receptor.target.ID]; current == receptor {
+		delete(h.receptorsByPeer, receptor.target.ID)
+	}
+	h.mu.Unlock()
+
+	_ = receptor.close()
+}
+
+func (h *Hub) rollbackAttachedStream(receptor *Receptor, replacement streamReplacement) {
+	if replacement.Replaced && replacement.Stream != nil {
+		_ = replacement.Stream.Reset()
+	}
+	if receptor != nil {
+		_, _, _, _ = receptor.resetActiveStream()
+	}
 }
 
 func (h *Hub) receptorByID(id ReceptorID) (*Receptor, error) {

@@ -28,6 +28,10 @@ allowed to reject slow consumers instead of blocking stream readers.
 This channel is also bounded, but overflow only increments counters and logs a
 warning because metrics loss should not break the data path.
 
+`backpressure_reset` metrics are only emitted when `Config.EventOverflowPolicy`
+is `OverflowPolicyResetStream`. In drop-only mode the hub still emits
+`event_dropped`, but it keeps the stream open.
+
 ## Logging
 
 The package emits structured logs for:

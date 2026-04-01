@@ -559,9 +559,9 @@ func (r *Receptor) handleStreamWriteError(stream network.Stream, cause error) {
 	r.hub.publishMetric(MetricKindWriteFailed, r, streamID, cause)
 }
 
-func (r *Receptor) handleEventOverflow(evt Event) (Snapshot, string, bool, error) {
+func (r *Receptor) handleEventOverflow(evt Event, policy OverflowPolicy) (Snapshot, string, bool, error) {
 	snapshot := r.recordEventDrop()
-	if evt.Kind != EventKindDataReceived || evt.StreamID == "" {
+	if policy != OverflowPolicyResetStream || evt.Kind != EventKindDataReceived || evt.StreamID == "" {
 		return snapshot, "", false, nil
 	}
 

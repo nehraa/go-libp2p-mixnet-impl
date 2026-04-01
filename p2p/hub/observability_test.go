@@ -3,6 +3,7 @@ package hub
 import (
 	"bytes"
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -59,9 +60,10 @@ func TestEventBackpressureResetsStreamAndTracksDrops(t *testing.T) {
 	defer hub1.Close()
 
 	hub2, err := New(h2, Config{
-		ProtocolID:        testProtocol,
-		EventBufferSize:   1,
-		MetricsBufferSize: 32,
+		ProtocolID:          testProtocol,
+		EventBufferSize:     1,
+		MetricsBufferSize:   32,
+		EventOverflowPolicy: OverflowPolicyResetStream,
 	})
 	require.NoError(t, err)
 	defer hub2.Close()
@@ -92,6 +94,59 @@ func TestEventBackpressureResetsStreamAndTracksDrops(t *testing.T) {
 	require.Greater(t, update.Snapshot.EventDropCount, uint64(0))
 	require.Greater(t, update.Snapshot.BackpressureResets, uint64(0))
 	require.False(t, update.Snapshot.HasActiveStream)
+}
+
+func TestEventBackpressureDropPolicyTracksDropsWithoutReset(t *testing.T) {
+	mn, h1, h2 := newMockHosts(t)
+	defer mn.Close()
+
+	hub1, err := New(h1, Config{
+		ProtocolID:        testProtocol,
+		EventBufferSize:   1,
+		MetricsBufferSize: 32,
+	})
+	require.NoError(t, err)
+	defer hub1.Close()
+
+	hub2, err := New(h2, Config{
+		ProtocolID:          testProtocol,
+		EventBufferSize:     1,
+		MetricsBufferSize:   32,
+		EventOverflowPolicy: OverflowPolicyDrop,
+	})
+	require.NoError(t, err)
+	defer hub2.Close()
+
+	receptor1, receptor2 := createPairedReceptors(t, hub1, hub2, h1, h2)
+	drainEvents(hub2.Events())
+	drainMetrics(hub2.Metrics())
+
+	payload := bytes.Repeat([]byte("b"), 256)
+	require.Eventually(t, func() bool {
+		for range 8 {
+			if _, sendErr := receptor1.Send(context.Background(), payload); sendErr != nil {
+				_ = hub1.OpenStream(context.Background(), receptor1.ID())
+				break
+			}
+		}
+
+		snapshot, snapshotErr := hub2.Snapshot(receptor2.ID())
+		if snapshotErr != nil {
+			return false
+		}
+		return snapshot.EventDropCount > 0 && snapshot.BackpressureResets == 0 && snapshot.HasActiveStream
+	}, 3*time.Second, 20*time.Millisecond)
+
+	update := waitForMetric(t, hub2.Metrics(), 2*time.Second, func(update MetricUpdate) bool {
+		return update.Kind == MetricKindEventDropped && update.ReceptorID == receptor2.ID()
+	})
+	require.Greater(t, update.Snapshot.EventDropCount, uint64(0))
+	require.Zero(t, update.Snapshot.BackpressureResets)
+	require.True(t, update.Snapshot.HasActiveStream)
+
+	ensureNoMetric(t, hub2.Metrics(), 200*time.Millisecond, func(update MetricUpdate) bool {
+		return update.Kind == MetricKindBackpressure && update.ReceptorID == receptor2.ID()
+	})
 }
 
 func TestMetricsBackpressureTracksDroppedUpdates(t *testing.T) {
@@ -143,4 +198,41 @@ func TestOpenStreamTracksFailureState(t *testing.T) {
 	require.Greater(t, snapshot.ConnectAttemptCount, uint64(0))
 	require.Greater(t, snapshot.ConnectFailureCount, uint64(0))
 	require.NotEmpty(t, snapshot.LastError)
+}
+
+func TestHandleStreamWriteErrorPublishesCloseAndFailureState(t *testing.T) {
+	mn, h1, h2 := newMockHosts(t)
+	defer mn.Close()
+
+	hub1, err := New(h1, Config{ProtocolID: testProtocol, MetricsBufferSize: 32})
+	require.NoError(t, err)
+	defer hub1.Close()
+
+	hub2, err := New(h2, Config{ProtocolID: testProtocol, MetricsBufferSize: 32})
+	require.NoError(t, err)
+	defer hub2.Close()
+
+	receptor1, _ := createPairedReceptors(t, hub1, hub2, h1, h2)
+	drainEvents(hub1.Events())
+	drainMetrics(hub1.Metrics())
+
+	receptor1.mu.RLock()
+	stream := receptor1.activeStream
+	receptor1.mu.RUnlock()
+	require.NotNil(t, stream)
+
+	writeErr := errors.New("synthetic write failure")
+	receptor1.handleStreamWriteError(stream, writeErr)
+
+	closed := waitForEvent(t, hub1.Events(), 2*time.Second, func(evt Event) bool {
+		return evt.Kind == EventKindStreamClosed && evt.ReceptorID == receptor1.ID()
+	})
+	require.Equal(t, receptor1.ID(), closed.ReceptorID)
+
+	update := waitForMetric(t, hub1.Metrics(), 2*time.Second, func(update MetricUpdate) bool {
+		return update.Kind == MetricKindWriteFailed && update.ReceptorID == receptor1.ID()
+	})
+	require.ErrorIs(t, update.Err, writeErr)
+	require.Greater(t, update.Snapshot.WriteErrorCount, uint64(0))
+	require.False(t, update.Snapshot.HasActiveStream)
 }

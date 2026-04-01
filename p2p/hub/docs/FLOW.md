@@ -42,6 +42,7 @@
 
 1. Event and metrics channels are bounded.
 2. If the event channel is full, the hub records a drop.
-3. A dropped data event forces a stream reset to protect the reader from
-   blocking behind an unconsumed queue.
-4. Metrics drops are counted and logged, but they do not reset streams.
+3. `OverflowPolicyResetStream` forces a dropped data event to reset the active
+   stream so blocked readers fail fast.
+4. `OverflowPolicyDrop` records the drop and keeps the active stream open.
+5. Metrics drops are counted and logged, but they do not reset streams.

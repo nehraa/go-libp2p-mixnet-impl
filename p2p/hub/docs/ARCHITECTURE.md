@@ -28,6 +28,8 @@
   stream.
 - Data and lifecycle events are bounded and non-blocking. Slow consumers cannot
   stall read loops.
+- Event overflow policy is explicit. Callers choose between fail-fast reset and
+  drop-only semantics, with reset remaining the default.
 - Metrics travel on a separate channel from payload events so observability does
   not depend on draining the data plane.
 

@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func waitForMetric(t *testing.T, metrics <-chan MetricUpdate, timeout time.Duration, predicate func(MetricUpdate) bool) MetricUpdate {
+func waitForMetric(t testing.TB, metrics <-chan MetricUpdate, timeout time.Duration, predicate func(MetricUpdate) bool) MetricUpdate {
 	t.Helper()
 
 	timer := time.NewTimer(timeout)
@@ -28,6 +28,27 @@ func waitForMetric(t *testing.T, metrics <-chan MetricUpdate, timeout time.Durat
 			}
 		case <-timer.C:
 			t.Fatal("timed out waiting for metric")
+		}
+	}
+}
+
+func ensureNoMetric(t testing.TB, metrics <-chan MetricUpdate, timeout time.Duration, predicate func(MetricUpdate) bool) {
+	t.Helper()
+
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+
+	for {
+		select {
+		case update, ok := <-metrics:
+			if !ok {
+				return
+			}
+			if predicate(update) {
+				t.Fatalf("unexpected metric received: %#v", update)
+			}
+		case <-timer.C:
+			return
 		}
 	}
 }
@@ -52,7 +73,7 @@ func drainMetrics(metrics <-chan MetricUpdate) {
 	}
 }
 
-func newRealHost(t *testing.T, listenAddr string) host.Host {
+func newRealHost(t testing.TB, listenAddr string) host.Host {
 	t.Helper()
 
 	h, err := libp2p.New(libp2p.ListenAddrStrings(listenAddr))
@@ -68,7 +89,7 @@ func multiaddrsToStrings(addrs []ma.Multiaddr) []string {
 	return encoded
 }
 
-func stringsToMultiaddrs(t *testing.T, values []string) []ma.Multiaddr {
+func stringsToMultiaddrs(t testing.TB, values []string) []ma.Multiaddr {
 	t.Helper()
 
 	addrs := make([]ma.Multiaddr, 0, len(values))

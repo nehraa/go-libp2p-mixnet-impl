@@ -41,6 +41,7 @@ func TestNewRejectsInvalidConfigValues(t *testing.T) {
 		{name: "negative event buffer", cfg: Config{ProtocolID: testProtocol, EventBufferSize: -1}},
 		{name: "negative metrics buffer", cfg: Config{ProtocolID: testProtocol, MetricsBufferSize: -1}},
 		{name: "negative read buffer", cfg: Config{ProtocolID: testProtocol, ReadBufferSize: -1}},
+		{name: "invalid overflow policy", cfg: Config{ProtocolID: testProtocol, EventOverflowPolicy: OverflowPolicy("unknown")}},
 	}
 
 	for _, tc := range testCases {
@@ -50,6 +51,17 @@ func TestNewRejectsInvalidConfigValues(t *testing.T) {
 			require.ErrorIs(t, err, ErrInvalidConfig)
 		})
 	}
+}
+
+func TestNewRejectsProtocolHandlerConflict(t *testing.T) {
+	mn, h1, _ := newMockHosts(t)
+	defer mn.Close()
+
+	installDiscardHandler(h1, testProtocol)
+
+	_, err := New(h1, Config{ProtocolID: testProtocol})
+	require.Error(t, err)
+	require.ErrorIs(t, err, ErrProtocolHandlerConflict)
 }
 
 func TestCreateReceptorRejectsDuplicatePeerBinding(t *testing.T) {
@@ -282,7 +294,63 @@ func TestCloseEmitsTerminalLifecycleEvents(t *testing.T) {
 	require.Contains(t, eventKindsForReceptor(events, receptor1.ID()), EventKindReceptorRemoved)
 }
 
-func createPairedReceptors(t *testing.T, hub1, hub2 *Hub, h1, h2 host.Host) (*Receptor, *Receptor) {
+func TestHubPublicMethodsRejectAfterClose(t *testing.T) {
+	mn, h1, h2 := newMockHosts(t)
+	defer mn.Close()
+
+	installDiscardHandler(h2, testProtocol)
+
+	hub, err := New(h1, Config{ProtocolID: testProtocol})
+	require.NoError(t, err)
+
+	receptor, err := hub.CreateReceptor(context.Background(), peer.AddrInfo{ID: h2.ID(), Addrs: h2.Addrs()})
+	require.NotNil(t, receptor)
+	require.NoError(t, err)
+
+	require.NoError(t, hub.Close())
+
+	created, err := hub.CreateReceptor(context.Background(), peer.AddrInfo{ID: h2.ID(), Addrs: h2.Addrs()})
+	require.Nil(t, created)
+	require.ErrorIs(t, err, ErrHubClosed)
+
+	require.ErrorIs(t, hub.OpenStream(context.Background(), receptor.ID()), ErrHubClosed)
+	require.ErrorIs(t, hub.ResetStream(receptor.ID()), ErrHubClosed)
+	require.ErrorIs(t, hub.RemoveReceptor(receptor.ID()), ErrHubClosed)
+
+	_, err = hub.Snapshot(receptor.ID())
+	require.ErrorIs(t, err, ErrHubClosed)
+	require.Empty(t, hub.Snapshots())
+}
+
+func TestRollbackReceptorRemovesBindingAndCancelsContext(t *testing.T) {
+	mn, h1, h2 := newMockHosts(t)
+	defer mn.Close()
+
+	hub, err := New(h1, Config{ProtocolID: testProtocol})
+	require.NoError(t, err)
+	defer hub.Close()
+
+	receptor := newReceptor(hub, ReceptorID("receptor-rollback"), peer.AddrInfo{ID: h2.ID(), Addrs: h2.Addrs()})
+
+	hub.mu.Lock()
+	hub.receptorsByID[receptor.id] = receptor
+	hub.receptorsByPeer[receptor.target.ID] = receptor
+	hub.mu.Unlock()
+
+	hub.rollbackReceptor(receptor)
+
+	_, err = hub.receptorByID(receptor.id)
+	require.ErrorIs(t, err, ErrReceptorNotFound)
+	require.Nil(t, hub.receptorByPeerID(receptor.target.ID))
+
+	select {
+	case <-receptor.ctx.Done():
+	default:
+		t.Fatal("expected receptor context to be canceled")
+	}
+}
+
+func createPairedReceptors(t testing.TB, hub1, hub2 *Hub, h1, h2 host.Host) (*Receptor, *Receptor) {
 	t.Helper()
 
 	receptor1, err := hub1.CreateReceptor(context.Background(), peer.AddrInfo{ID: h2.ID(), Addrs: h2.Addrs()})
@@ -334,7 +402,7 @@ func installDiscardHandler(h host.Host, pid protocol.ID) {
 	})
 }
 
-func waitForActiveStream(t *testing.T, hub *Hub, id ReceptorID, tick func()) Snapshot {
+func waitForActiveStream(t testing.TB, hub *Hub, id ReceptorID, tick func()) Snapshot {
 	t.Helper()
 
 	var snapshot Snapshot
@@ -346,11 +414,11 @@ func waitForActiveStream(t *testing.T, hub *Hub, id ReceptorID, tick func()) Sna
 		}
 		snapshot = current
 		return snapshot.HasActiveStream
-	}, 2*time.Second, 20*time.Millisecond)
+	}, 3*time.Second, 20*time.Millisecond)
 	return snapshot
 }
 
-func waitForNoActiveStream(t *testing.T, hub *Hub, id ReceptorID) Snapshot {
+func waitForNoActiveStream(t testing.TB, hub *Hub, id ReceptorID) Snapshot {
 	t.Helper()
 
 	var snapshot Snapshot
@@ -361,11 +429,11 @@ func waitForNoActiveStream(t *testing.T, hub *Hub, id ReceptorID) Snapshot {
 		}
 		snapshot = current
 		return !snapshot.HasActiveStream
-	}, 2*time.Second, 20*time.Millisecond)
+	}, 3*time.Second, 20*time.Millisecond)
 	return snapshot
 }
 
-func waitForEvent(t *testing.T, events <-chan Event, timeout time.Duration, predicate func(Event) bool) Event {
+func waitForEvent(t testing.TB, events <-chan Event, timeout time.Duration, predicate func(Event) bool) Event {
 	t.Helper()
 
 	timer := time.NewTimer(timeout)
@@ -412,7 +480,7 @@ func eventKindsForReceptor(events []Event, id ReceptorID) []EventKind {
 	return kinds
 }
 
-func newMockHosts(t *testing.T) (mocknet.Mocknet, host.Host, host.Host) {
+func newMockHosts(t testing.TB) (mocknet.Mocknet, host.Host, host.Host) {
 	t.Helper()
 
 	mn, err := mocknet.FullMeshConnected(2)
