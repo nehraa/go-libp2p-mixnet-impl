@@ -1,0 +1,1272 @@
+<!DOCTYPE html>
+<html lang="en" data-updated="true">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Understanding the P2P Hub: A Complete Course</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,700;12..96,800&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400;1,9..40,500&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --color-bg: #FAF7F2;
+            --color-bg-warm: #F5F0E8;
+            --color-bg-code: #1E1E2E;
+            --color-text: #2C2A28;
+            --color-text-secondary: #6B6560;
+            --color-text-muted: #9E9790;
+            --color-border: #E5DFD6;
+            --color-border-light: #EEEBE5;
+            --color-surface: #FFFFFF;
+            --color-surface-warm: #FDF9F3;
+            --color-accent: #D94F30;
+            --color-accent-hover: #C4432A;
+            --color-accent-light: #FDEEE9;
+            --color-accent-muted: #E8836C;
+            --color-success: #2D8B55;
+            --color-success-light: #E8F5EE;
+            --color-error: #C93B3B;
+            --color-error-light: #FDE8E8;
+            --color-info: #2A7B9B;
+            --color-info-light: #E4F2F7;
+            --color-actor-1: #D94F30;
+            --color-actor-2: #2A7B9B;
+            --color-actor-3: #7B6DAA;
+            --color-actor-4: #D4A843;
+            --color-actor-5: #2D8B55;
+            --font-display: 'Bricolage Grotesque', Georgia, serif;
+            --font-body: 'DM Sans', -apple-system, sans-serif;
+            --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+            --text-xs: 0.75rem;
+            --text-sm: 0.875rem;
+            --text-base: 1rem;
+            --text-lg: 1.125rem;
+            --text-xl: 1.25rem;
+            --text-2xl: 1.5rem;
+            --text-3xl: 1.875rem;
+            --text-4xl: 2.25rem;
+            --text-5xl: 3rem;
+            --text-6xl: 3.75rem;
+            --leading-tight: 1.15;
+            --leading-snug: 1.3;
+            --leading-normal: 1.6;
+            --leading-loose: 1.8;
+            --space-1: 0.25rem;
+            --space-2: 0.5rem;
+            --space-3: 0.75rem;
+            --space-4: 1rem;
+            --space-5: 1.25rem;
+            --space-6: 1.5rem;
+            --space-8: 2rem;
+            --space-10: 2.5rem;
+            --space-12: 3rem;
+            --space-16: 4rem;
+            --space-20: 5rem;
+            --space-24: 6rem;
+            --content-width: 800px;
+            --content-width-wide: 1000px;
+            --nav-height: 50px;
+            --radius-sm: 8px;
+            --radius-md: 12px;
+            --radius-lg: 16px;
+            --radius-full: 9999px;
+            --shadow-sm: 0 1px 2px rgba(44, 42, 40, 0.05);
+            --shadow-md: 0 4px 12px rgba(44, 42, 40, 0.08);
+            --shadow-lg: 0 8px 24px rgba(44, 42, 40, 0.1);
+            --shadow-xl: 0 16px 48px rgba(44, 42, 40, 0.12);
+            --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+            --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+            --duration-fast: 150ms;
+            --duration-normal: 300ms;
+            --duration-slow: 500ms;
+            --stagger-delay: 120ms;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        html { scroll-snap-type: y proximity; scroll-behavior: smooth; }
+        body {
+            font-family: var(--font-body);
+            color: var(--color-text);
+            background: var(--color-bg);
+            background-image: radial-gradient(ellipse at 20% 50%, rgba(217, 79, 48, 0.03) 0%, transparent 50%);
+            line-height: var(--leading-normal);
+            overflow-x: hidden;
+        }
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: var(--color-border); border-radius: var(--radius-full); }
+
+        /* Navigation */
+        .nav {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: var(--nav-height);
+            background: rgba(250, 247, 242, 0.95);
+            backdrop-filter: blur(12px);
+            z-index: 1000;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 var(--space-6);
+            border-bottom: 1px solid var(--color-border);
+        }
+        .nav-title {
+            font-family: var(--font-display);
+            font-weight: 600;
+            font-size: var(--text-sm);
+        }
+        .nav-dots {
+            display: flex;
+            gap: var(--space-2);
+        }
+        .nav-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: var(--radius-full);
+            border: 2px solid var(--color-text-muted);
+            background: transparent;
+            cursor: pointer;
+            transition: all var(--duration-fast) var(--ease-out);
+        }
+        .nav-dot:hover { border-color: var(--color-accent); }
+        .nav-dot.current {
+            border-color: var(--color-accent);
+            background: var(--color-accent);
+            box-shadow: 0 0 8px rgba(217, 79, 48, 0.4);
+        }
+        .nav-dot.visited {
+            background: var(--color-accent);
+            border-color: var(--color-accent);
+        }
+        .progress-bar {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            height: 2px;
+            background: var(--color-accent);
+            width: 0%;
+            transition: width 0.1s linear;
+        }
+
+        /* Module Structure */
+        .module {
+            min-height: 100dvh;
+            min-height: 100vh;
+            scroll-snap-align: start;
+            padding: var(--space-16) var(--space-6);
+            padding-top: calc(var(--nav-height) + var(--space-12));
+        }
+        .module:nth-child(odd) { background: var(--color-bg-warm); }
+        .module-content {
+            max-width: var(--content-width);
+            margin: 0 auto;
+        }
+        .module-header {
+            margin-bottom: var(--space-12);
+            text-align: center;
+        }
+        .module-number {
+            display: inline-block;
+            font-family: var(--font-display);
+            font-size: var(--text-6xl);
+            font-weight: 800;
+            color: var(--color-accent);
+            opacity: 0.15;
+            line-height: 1;
+        }
+        .module-title {
+            font-family: var(--font-display);
+            font-size: var(--text-4xl);
+            font-weight: 700;
+            margin-top: calc(-1 * var(--space-4));
+            line-height: var(--leading-tight);
+        }
+        .module-subtitle {
+            font-size: var(--text-lg);
+            color: var(--color-text-secondary);
+            margin-top: var(--space-4);
+            max-width: 600px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+
+        /* Screens */
+        .screen {
+            margin-bottom: var(--space-16);
+        }
+        .screen-heading {
+            font-family: var(--font-display);
+            font-size: var(--text-2xl);
+            font-weight: 600;
+            margin-bottom: var(--space-6);
+            color: var(--color-text);
+        }
+
+        /* Animation */
+        .animate-in {
+            opacity: 0;
+            transform: translateY(20px);
+            transition: opacity var(--duration-slow) var(--ease-out), transform var(--duration-slow) var(--ease-out);
+        }
+        .animate-in.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        /* Code Blocks */
+        pre, code {
+            font-family: var(--font-mono);
+            font-size: var(--text-sm);
+            white-space: pre-wrap;
+            word-break: break-word;
+            overflow-x: hidden;
+        }
+        pre::-webkit-scrollbar { display: none; }
+        .code-block {
+            background: var(--color-bg-code);
+            border-radius: var(--radius-md);
+            padding: var(--space-5);
+            margin: var(--space-6) 0;
+            color: #CDD6F4;
+        }
+        .code-keyword { color: #CBA6F7; }
+        .code-string { color: #A6E3A1; }
+        .code-function { color: #89B4FA; }
+        .code-comment { color: #6C7086; }
+        .code-number { color: #FAB387; }
+        .code-property { color: #F9E2AF; }
+        .code-operator { color: #94E2D5; }
+
+        /* Translation Block */
+        .translation-block {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: var(--space-4);
+            margin: var(--space-6) 0;
+        }
+        @media (max-width: 768px) {
+            .translation-block { grid-template-columns: 1fr; }
+        }
+        .translation-code, .translation-english {
+            border-radius: var(--radius-md);
+            padding: var(--space-5);
+        }
+        .translation-code {
+            background: var(--color-bg-code);
+            color: #CDD6F4;
+        }
+        .translation-english {
+            background: var(--color-surface);
+            border: 1px solid var(--color-border);
+        }
+        .translation-english h4 {
+            font-family: var(--font-display);
+            font-size: var(--text-sm);
+            font-weight: 600;
+            color: var(--color-text-secondary);
+            margin-bottom: var(--space-3);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        .translation-english p {
+            font-size: var(--text-sm);
+            color: var(--color-text);
+            margin-bottom: var(--space-3);
+        }
+        .translation-english p:last-child { margin-bottom: 0; }
+
+        /* Chat Animation */
+        .chat-container {
+            background: var(--color-surface);
+            border-radius: var(--radius-lg);
+            padding: var(--space-6);
+            margin: var(--space-6) 0;
+            border: 1px solid var(--color-border);
+        }
+        .chat-message {
+            display: flex;
+            margin-bottom: var(--space-4);
+            opacity: 0;
+            transform: translateY(10px);
+            animation: fadeInUp 0.5s var(--ease-out) forwards;
+        }
+        .chat-message:nth-child(1) { animation-delay: 0.2s; }
+        .chat-message:nth-child(2) { animation-delay: 0.8s; }
+        .chat-message:nth-child(3) { animation-delay: 1.4s; }
+        .chat-message:nth-child(4) { animation-delay: 2s; }
+        .chat-avatar {
+            width: 40px;
+            height: 40px;
+            border-radius: var(--radius-full);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 600;
+            font-size: var(--text-xs);
+            color: white;
+            flex-shrink: 0;
+            margin-right: var(--space-3);
+        }
+        .chat-bubble {
+            background: var(--color-bg-warm);
+            border-radius: var(--radius-md);
+            padding: var(--space-3) var(--space-4);
+            max-width: 80%;
+        }
+        .chat-bubble.sent {
+            background: var(--color-accent-light);
+            margin-left: auto;
+        }
+        .chat-bubble p {
+            font-size: var(--text-sm);
+            margin: 0;
+        }
+        .chat-bubble .timestamp {
+            font-size: var(--text-xs);
+            color: var(--color-text-muted);
+            margin-top: var(--space-1);
+        }
+        @keyframes fadeInUp {
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* Flow Diagram */
+        .flow-diagram {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: var(--space-4);
+            margin: var(--space-8) 0;
+            flex-wrap: wrap;
+        }
+        .flow-node {
+            background: var(--color-surface);
+            border: 2px solid var(--color-border);
+            border-radius: var(--radius-md);
+            padding: var(--space-4) var(--space-6);
+            text-align: center;
+            min-width: 140px;
+        }
+        .flow-node h4 {
+            font-family: var(--font-display);
+            font-weight: 600;
+            margin-bottom: var(--space-1);
+        }
+        .flow-node p {
+            font-size: var(--text-xs);
+            color: var(--color-text-secondary);
+        }
+        .flow-arrow {
+            font-size: var(--text-2xl);
+            color: var(--color-text-muted);
+        }
+
+        /* Quiz */
+        .quiz-container {
+            background: var(--color-surface);
+            border-radius: var(--radius-lg);
+            padding: var(--space-6);
+            margin: var(--space-8) 0;
+            border: 1px solid var(--color-border);
+        }
+        .quiz-question {
+            font-family: var(--font-display);
+            font-weight: 600;
+            font-size: var(--text-lg);
+            margin-bottom: var(--space-5);
+        }
+        .quiz-options {
+            display: flex;
+            flex-direction: column;
+            gap: var(--space-3);
+        }
+        .quiz-option {
+            background: var(--color-bg-warm);
+            border: 2px solid var(--color-border);
+            border-radius: var(--radius-md);
+            padding: var(--space-4);
+            cursor: pointer;
+            transition: all var(--duration-fast) var(--ease-out);
+        }
+        .quiz-option:hover {
+            border-color: var(--color-accent-muted);
+        }
+        .quiz-option.correct {
+            background: var(--color-success-light);
+            border-color: var(--color-success);
+        }
+        .quiz-option.wrong {
+            background: var(--color-error-light);
+            border-color: var(--color-error);
+        }
+        .quiz-option p {
+            font-size: var(--text-sm);
+            margin: 0;
+        }
+        .quiz-feedback {
+            margin-top: var(--space-4);
+            padding: var(--space-4);
+            border-radius: var(--radius-md);
+            display: none;
+        }
+        .quiz-feedback.show { display: block; }
+        .quiz-feedback.correct {
+            background: var(--color-success-light);
+            color: var(--color-success);
+        }
+        .quiz-feedback.wrong {
+            background: var(--color-error-light);
+            color: var(--color-error);
+        }
+
+        /* Callout Box */
+        .callout {
+            background: var(--color-surface);
+            border-left: 4px solid var(--color-accent);
+            border-radius: 0 var(--radius-md) var(--radius-md) 0;
+            padding: var(--space-5);
+            margin: var(--space-6) 0;
+        }
+        .callout h4 {
+            font-family: var(--font-display);
+            font-weight: 600;
+            color: var(--color-accent);
+            margin-bottom: var(--space-2);
+        }
+        .callout p {
+            font-size: var(--text-sm);
+            color: var(--color-text-secondary);
+        }
+
+        /* Tooltip */
+        .has-tooltip {
+            border-bottom: 1px dashed var(--color-accent);
+            cursor: pointer;
+            position: relative;
+        }
+        .tooltip {
+            position: fixed;
+            background: var(--color-text);
+            color: var(--color-bg);
+            padding: var(--space-3) var(--space-4);
+            border-radius: var(--radius-sm);
+            font-size: var(--text-xs);
+            max-width: 280px;
+            z-index: 10000;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity var(--duration-fast) var(--ease-out);
+        }
+        .tooltip.show { opacity: 1; }
+        .tooltip::after {
+            content: '';
+            position: absolute;
+            bottom: -6px;
+            left: 50%;
+            transform: translateX(-50%);
+            border-width: 6px 6px 0;
+            border-style: solid;
+            border-color: var(--color-text) transparent transparent;
+        }
+        .tooltip.above::after {
+            bottom: auto;
+            top: -6px;
+            border-width: 0 6px 6px;
+            border-color: transparent transparent var(--color-text);
+        }
+
+        /* Pattern Cards */
+        .pattern-cards {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: var(--space-4);
+            margin: var(--space-6) 0;
+        }
+        .pattern-card {
+            background: var(--color-surface);
+            border-radius: var(--radius-md);
+            padding: var(--space-5);
+            border: 1px solid var(--color-border);
+        }
+        .pattern-card h4 {
+            font-family: var(--font-display);
+            font-weight: 600;
+            margin-bottom: var(--space-3);
+            display: flex;
+            align-items: center;
+            gap: var(--space-2);
+        }
+        .pattern-card p {
+            font-size: var(--text-sm);
+            color: var(--color-text-secondary);
+        }
+        .pattern-icon {
+            width: 32px;
+            height: 32px;
+            border-radius: var(--radius-sm);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: var(--text-sm);
+        }
+
+        /* Actor Badge */
+        .actor-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: var(--space-2);
+            padding: var(--space-1) var(--space-3);
+            border-radius: var(--radius-full);
+            font-size: var(--text-xs);
+            font-family: var(--font-mono);
+            font-weight: 500;
+        }
+        .actor-hub { background: rgba(217, 79, 48, 0.1); color: var(--color-actor-1); }
+        .actor-receptor { background: rgba(42, 123, 155, 0.1); color: var(--color-actor-2); }
+        .actor-peer { background: rgba(123, 109, 170, 0.1); color: var(--color-actor-3); }
+    </style>
+</head>
+<body>
+    <!-- Navigation -->
+    <nav class="nav">
+        <span class="nav-title">P2P Hub Course</span>
+        <div class="nav-dots">
+            <button class="nav-dot current" data-target="module-1" aria-label="Module 1"></button>
+            <button class="nav-dot" data-target="module-2" aria-label="Module 2"></button>
+            <button class="nav-dot" data-target="module-3" aria-label="Module 3"></button>
+            <button class="nav-dot" data-target="module-4" aria-label="Module 4"></button>
+            <button class="nav-dot" data-target="module-5" aria-label="Module 5"></button>
+        </div>
+        <div class="progress-bar"></div>
+    </nav>
+
+    <!-- Module 1: Introduction -->
+    <section class="module" id="module-1">
+        <div class="module-content">
+            <header class="module-header animate-in">
+                <span class="module-number">01</span>
+                <h1 class="module-title">What is the P2P Hub?</h1>
+                <p class="module-subtitle">Understanding how peer-to-peer applications manage connections, streams, and communication</p>
+            </header>
+
+            <div class="screen animate-in">
+                <h2 class="screen-heading">The Problem: Managing P2P Connections</h2>
+                <p>When you build a peer-to-peer application, every peer can connect directly to every other peer. This creates a challenge: <strong>how do you manage all these connections?</strong></p>
+
+                <div class="flow-diagram">
+                    <div class="flow-node">
+                        <h4>Your App</h4>
+                        <p>Wants to send data</p>
+                    </div>
+                    <span class="flow-arrow">→</span>
+                    <div class="flow-node">
+                        <h4>Peer 1</h4>
+                        <p>Connected</p>
+                    </div>
+                    <span class="flow-arrow">→</span>
+                    <div class="flow-node">
+                        <h4>Peer 2</h4>
+                        <p>Connected</p>
+                    </div>
+                    <span class="flow-arrow">→</span>
+                    <div class="flow-node">
+                        <h4>Peer N</h4>
+                        <p>Connected</p>
+                    </div>
+                </div>
+
+                <p>The <span class="has-tooltip" data-tooltip="A central point that organizes and manages connections between multiple peers">Hub</span> solves this by acting as a <strong>postal service</strong> for your P2P network. Just like a post office manages mail delivery to multiple addresses, the Hub manages data delivery to multiple peers.</p>
+            </div>
+
+            <div class="screen animate-in">
+                <h2 class="screen-heading">The Two Main Characters</h2>
+
+                <div class="pattern-cards">
+                    <div class="pattern-card">
+                        <h4><span class="pattern-icon" style="background: rgba(217, 79, 48, 0.1); color: var(--color-actor-1);">H</span> The Hub</h4>
+                        <p>The central coordinator that manages all peer connections. It creates and tracks receptors, handles stream lifecycle, and publishes events about what's happening.</p>
+                    </div>
+                    <div class="pattern-card">
+                        <h4><span class="pattern-icon" style="background: rgba(42, 123, 155, 0.1); color: var(--color-actor-2);">R</span> The Receptor</h4>
+                        <p>A binding between the Hub and a specific peer. Each receptor manages one active stream and tracks connection health through pings.</p>
+                    </div>
+                </div>
+
+                <div class="callout">
+                    <h4>Why This Matters for AI Steering</h4>
+                    <p>When you tell AI to "add peer-to-peer messaging to my app," you need to know that managing multiple connections requires a coordination layer. Without understanding this concept, AI might create brittle code that doesn't handle reconnection, backpressure, or concurrent streams.</p>
+                </div>
+            </div>
+
+            <div class="screen animate-in">
+                <h2 class="screen-heading">Code in Action: Creating a Hub</h2>
+
+                <div class="translation-block">
+                    <div class="translation-code">
+<pre>hub, err := hub.New(host, hub.Config{
+    ProtocolID: "/myapp/1.0.0",
+})
+if err != nil {
+    return err
+}
+defer hub.Close()</pre>
+                    </div>
+                    <div class="translation-english">
+                        <h4>What This Does</h4>
+                        <p>Create a new Hub instance attached to a libp2p <span class="has-tooltip" data-tooltip="The libp2p Host is your identity on the network - it has your peer ID, listens for connections, and can dial other peers">host</span>.</p>
+                        <p><strong>ProtocolID</strong> is like a room number - only peers speaking the same protocol can connect.</p>
+                        <p>The Hub registers itself as a stream handler and starts listening for incoming connections.</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="quiz-container">
+                <p class="quiz-question">You're building a file sharing app. Two peers need to exchange data. What pattern should you expect?</p>
+                <div class="quiz-options">
+                    <div class="quiz-option" data-correct="false"><p>A. Direct connection, no coordination needed</p></div>
+                    <div class="quiz-option" data-correct="true"><p>B. Each peer has a Hub with Receptors for the other peer</p></div>
+                    <div class="quiz-option" data-correct="false"><p>C. One central server that relays all data</p></div>
+                </div>
+                <div class="quiz-feedback"></div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Module 2: The Receptor -->
+    <section class="module" id="module-2">
+        <div class="module-content">
+            <header class="module-header animate-in">
+                <span class="module-number">02</span>
+                <h1 class="module-title">Understanding Receptors</h1>
+                <p class="module-subtitle">The managed binding between your Hub and a specific peer</p>
+            </header>
+
+            <div class="screen animate-in">
+                <h2 class="screen-heading">What is a Receptor?</h2>
+                <p>A <span class="has-tooltip" data-tooltip="A Receptor represents one peer connection, managing the active stream and tracking health metrics">Receptor</span> is like a dedicated phone line to one friend. You create it when you want to talk to someone, and it stays active until you hang up.</p>
+
+                <div class="chat-container">
+                    <div class="chat-message">
+                        <div class="chat-avatar" style="background: var(--color-actor-2);">R1</div>
+                        <div class="chat-bubble">
+                            <p>Created for peer Alice. Stream opened successfully!</p>
+                            <p class="timestamp">Hub.Events()</p>
+                        </div>
+                    </div>
+                    <div class="chat-message">
+                        <div class="chat-avatar" style="background: var(--color-actor-3);">Alice</div>
+                        <div class="chat-bubble" style="background: var(--color-bg-warm);">
+                            <p>Sending data: [file chunk 1]</p>
+                            <p class="timestamp">Received via stream</p>
+                        </div>
+                    </div>
+                    <div class="chat-message">
+                        <div class="chat-avatar" style="background: var(--color-actor-2);">R1</div>
+                        <div class="chat-bubble">
+                            <p>Data received! Emitting EventKindDataReceived...</p>
+                            <p class="timestamp">runReadLoop</p>
+                        </div>
+                    </div>
+                    <div class="chat-message">
+                        <div class="chat-avatar" style="background: var(--color-actor-2);">R1</div>
+                        <div class="chat-bubble">
+                            <p>Ping success: RTT 15ms. Connection healthy.</p>
+                            <p class="timestamp">samplePing loop</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="screen animate-in">
+                <h2 class="screen-heading">Creating a Receptor</h2>
+
+                <div class="translation-block">
+                    <div class="translation-code">
+<pre><span class="code-comment">// From hub.go</span>
+func (h *Hub) CreateReceptor(
+    ctx context.Context,
+    target peer.AddrInfo,
+) (*Receptor, error) {
+    <span class="code-comment">// Prevent duplicate bindings</span>
+    if _, exists := h.receptorsByPeer[
+        target.ID]; exists {
+        return nil, ErrDuplicatePeerBinding
+    }
+
+    receptorID := ReceptorID(fmt.Sprintf(
+        "receptor-%d", h.nextID.Add(1)))
+    receptor := newReceptor(h, receptorID, target)
+
+    h.receptorsByID[receptorID] = receptor
+    h.receptorsByPeer[target.ID] = receptor
+
+    <span class="code-comment">// Start health check pings</span>
+    go receptor.runPingLoop()
+
+    return receptor, nil
+}</pre>
+                    </div>
+                    <div class="translation-english">
+                        <h4>What's Happening Here</h4>
+                        <p><strong>1. Check duplicates:</strong> Can't have two receptors to the same peer - that would be like having two phone lines to the same friend.</p>
+                        <p><strong>2. Create receptor:</strong> A new Receptor struct is initialized with a unique ID and target peer info.</p>
+                        <p><strong>3. Track it:</strong> Store in two maps - one by ID for quick lookup, one by peer ID.</p>
+                        <p><strong>4. Start pings:</strong> Launch a background goroutine that periodically checks connection health.</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="screen animate-in">
+                <h2 class="screen-heading">The Receptor's State Machine</h2>
+                <p>Each Receptor tracks detailed metrics that help you understand the health of peer connections:</p>
+
+                <div class="code-block">
+<pre>type Receptor struct {
+    hub                 *Hub           <span class="code-comment">// Parent hub reference</span>
+    id                  ReceptorID     <span class="code-comment">// Unique identifier</span>
+    target              peer.AddrInfo  <span class="code-comment">// Who we're connected to</span>
+    activeStream        network.Stream <span class="code-comment">// Current data stream</span>
+    activeDirection     network.Direction <span class="code-comment">// Inbound or outbound</span>
+
+    <span class="code-comment">// Metrics (all tracked per-Receptor)</span>
+    bytesSent           uint64
+    bytesReceived       uint64
+    connectAttemptCount uint64
+    connectFailureCount uint64
+    streamOpenCount     uint64
+    pingSuccessCount    uint64
+    pingFailureCount    uint64
+}</pre>
+                </div>
+
+                <div class="callout">
+                    <h4>The Power of Metrics</h4>
+                    <p>Why track all these numbers? Because in production, you'll need to answer questions like: "Is this peer slow?" (RTT), "Did they receive my data?" (bytesReceived), "Is the connection stable?" (pingFailureCount). The Receptor maintains this state so your app can make smart decisions.</p>
+                </div>
+            </div>
+
+            <div class="quiz-container">
+                <p class="quiz-question">A Receptor's stream closes unexpectedly. What happens?</p>
+                <div class="quiz-options">
+                    <div class="quiz-option" data-correct="false"><p>A. The Receptor is destroyed immediately</p></div>
+                    <div class="quiz-option" data-correct="true"><p>B. The Receptor emits EventKindStreamClosed but remains for reconnection</p></div>
+                    <div class="quiz-option" data-correct="false"><p>C. The Hub creates a new Receptor automatically</p></div>
+                </div>
+                <div class="quiz-feedback"></div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Module 3: Streams and Data Flow -->
+    <section class="module" id="module-3">
+        <div class="module-content">
+            <header class="module-header animate-in">
+                <span class="module-number">03</span>
+                <h1 class="module-title">Streams and Data Flow</h1>
+                <p class="module-subtitle">How data travels through the Hub to reach its destination</p>
+            </header>
+
+            <div class="screen animate-in">
+                <h2 class="screen-heading">The Data Journey</h2>
+                <p>When you send data to a peer, it travels through multiple layers. Understanding this flow helps you debug "where did my data go?"</p>
+
+                <div class="flow-diagram">
+                    <div class="flow-node" style="border-color: var(--color-actor-1);">
+                        <h4>Your Code</h4>
+                        <p>receptor.Send(data)</p>
+                    </div>
+                    <span class="flow-arrow">→</span>
+                    <div class="flow-node" style="border-color: var(--color-actor-2);">
+                        <h4>Receptor</h4>
+                        <p>stream.Write()</p>
+                    </div>
+                    <span class="flow-arrow">→</span>
+                    <div class="flow-node" style="border-color: var(--color-actor-3);">
+                        <h4>libp2p</h4>
+                        <p>Network transport</p>
+                    </div>
+                    <span class="flow-arrow">→</span>
+                    <div class="flow-node" style="border-color: var(--color-actor-4);">
+                        <h4>Remote Hub</h4>
+                        <p>handleStream()</p>
+                    </div>
+                    <span class="flow-arrow">→</span>
+                    <div class="flow-node" style="border-color: var(--color-actor-5);">
+                        <h4>Remote App</h4>
+                        <p>Events()</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="screen animate-in">
+                <h2 class="screen-heading">Sending Data: The Send Method</h2>
+
+                <div class="translation-block">
+                    <div class="translation-code">
+<pre><span class="code-comment">// From receptor.go</span>
+func (r *Receptor) Send(
+    ctx context.Context,
+    payload []byte,
+) (<span class="code-keyword">int</span>, <span class="code-keyword">error</span>) {
+    r.mu.RLock()
+    stream := r.activeStream
+    r.mu.RUnlock()
+
+    <span class="code-keyword">if</span> stream == <span class="code-keyword">nil</span> {
+        <span class="code-keyword">return</span> 0, ErrNoActiveStream
+    }
+
+    <span class="code-comment">// Apply deadline if context has one</span>
+    <span class="code-keyword">if</span> deadline, ok := ctx.Deadline(); ok {
+        stream.SetWriteDeadline(deadline)
+        <span class="code-keyword">defer</span> stream.SetWriteDeadline(time.Time{})
+    }
+
+    n, err := stream.Write(payload)
+    <span class="code-keyword">if</span> err != <span class="code-keyword">nil</span> {
+        r.handleStreamWriteError(stream, err)
+        <span class="code-keyword">return</span> n, err
+    }
+
+    r.recordSend(n)  <span class="code-comment">// Track metrics</span>
+    <span class="code-keyword">return</span> n, <span class="code-keyword">nil</span>
+}</pre>
+                    </div>
+                    <div class="translation-english">
+                        <h4>The Flow Explained</h4>
+                        <p><strong>1. Get stream safely:</strong> Use a read-lock to get the current stream - another goroutine might be changing it.</p>
+                        <p><strong>2. Check exists:</strong> If no stream, can't send. Return an error the caller can handle.</p>
+                        <p><strong>3. Set deadline:</strong> If the context times out, the write should also timeout. This prevents hanging.</p>
+                        <p><strong>4. Write:</strong> Actually write to the network stream. This is where data leaves your computer.</p>
+                        <p><strong>5. Track:</strong> Update bytesSent counter so metrics reflect reality.</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="screen animate-in">
+                <h2 class="screen-heading">Receiving Data: The Read Loop</h2>
+                <p>Each Receptor runs a read loop in a background goroutine. This loop continuously reads from the stream and emits events.</p>
+
+                <div class="translation-block">
+                    <div class="translation-code">
+<pre><span class="code-comment">// From receptor.go</span>
+func (r *Receptor) runReadLoop(stream network.Stream) {
+    buffer := make([]byte, r.hub.cfg.ReadBufferSize)
+    <span class="code-keyword">for</span> {
+        n, err := stream.Read(buffer)
+        <span class="code-keyword">if</span> n > 0 {
+            chunk := append([]<span class="code-keyword">byte</span>(<span class="code-keyword">nil</span>),
+                buffer[:n]...)
+            snapshot, firstPacket, _ :=
+                r.recordInbound(stream, n)
+
+            r.hub.emitEvent(Event{
+                Kind:      EventKindDataReceived,
+                Data:      chunk,
+                Snapshot:  snapshot,
+                IsFirstPacket: firstPacket,
+            })
+        }
+
+        <span class="code-keyword">if</span> err != <span class="code-keyword">nil</span> {
+            <span class="code-comment">// Stream closed or error</span>
+            r.hub.emitEvent(Event{
+                Kind: EventKindStreamClosed,
+            })
+            <span class="code-keyword">return</span>
+        }
+    }
+}</pre>
+                    </div>
+                    <div class="translation-english">
+                        <h4>Reading Continuously</h4>
+                        <p><strong>Infinite loop:</strong> Keeps reading until the stream closes or errors.</p>
+                        <p><strong>Buffer & copy:</strong> Read into a buffer, then copy to a new slice. The copy is necessary because the buffer gets reused.</p>
+                        <p><strong>Emit event:</strong> Your application receives data through the Hub's Events() channel. This is how you get notified.</p>
+                        <p><strong>First packet flag:</strong> Special marker for the very first data received - useful for connection establishment protocols.</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="quiz-container">
+                <p class="quiz-question">You call receptor.Send() but get ErrNoActiveStream. What's the likely cause?</p>
+                <div class="quiz-options">
+                    <div class="quiz-option" data-correct="false"><p>A. The peer rejected your connection</p></div>
+                    <div class="quiz-option" data-correct="true"><p>B. The stream hasn't been opened yet or was closed</p></div>
+                    <div class="quiz-option" data-correct="false"><p>C. Your payload is too large</p></div>
+                </div>
+                <div class="quiz-feedback"></div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Module 4: Events and Observability -->
+    <section class="module" id="module-4">
+        <div class="module-content">
+            <header class="module-header animate-in">
+                <span class="module-number">04</span>
+                <h1 class="module-title">Events & Observability</h1>
+                <p class="module-subtitle">How the Hub tells you what's happening in real-time</p>
+            </header>
+
+            <div class="screen animate-in">
+                <h2 class="screen-heading">The Event System</h2>
+                <p>The Hub communicates with your application through two channels: <strong>Events</strong> (what happened) and <strong>Metrics</strong> (performance data). Think of Events as a news feed and Metrics as analytics.</p>
+
+                <div class="code-block">
+<pre>const (
+    EventKindReceptorCreated  EventKind = <span class="code-string">"receptor_created"</span>
+    EventKindReceptorRemoved  EventKind = <span class="code-string">"receptor_removed"</span>
+    EventKindStreamOpened     EventKind = <span class="code-string">"stream_opened"</span>
+    EventKindStreamClosed     EventKind = <span class="code-string">"stream_closed"</span>
+    EventKindDataReceived     EventKind = <span class="code-string">"data_received"</span>
+    EventKindPeerOffline      EventKind = <span class="code-string">"peer_offline"</span>
+    EventKindError            EventKind = <span class="code-string">"error"</span>
+)</pre>
+                </div>
+            </div>
+
+            <div class="screen animate-in">
+                <h2 class="screen-heading">Listening for Events</h2>
+
+                <div class="translation-block">
+                    <div class="translation-code">
+<pre><span class="code-comment">// Your application</span>
+func handleEvents(hub *hub.Hub) {
+    <span class="code-keyword">for</span> evt := <span class="code-keyword">range</span> hub.Events() {
+        <span class="code-keyword">switch</span> evt.Kind {
+        <span class="code-keyword">case</span> hub.EventKindDataReceived:
+            processData(evt.Data, evt.PeerID)
+        <span class="code-keyword">case</span> hub.EventKindStreamClosed:
+            log.Printf(<span class="code-string">"Stream to %s closed"</span>,
+                evt.PeerID)
+        <span class="code-keyword">case</span> hub.EventKindPeerOffline:
+            <span class="code-comment">// Trigger reconnection logic</span>
+            reconnect(evt.PeerID)
+        }
+    }
+}</pre>
+                    </div>
+                    <div class="translation-english">
+                        <h4>Reacting to the Hub</h4>
+                        <p><strong>Range over Events():</strong> This channel receives every significant thing the Hub does.</p>
+                        <p><strong>Switch on Kind:</strong> Different events need different responses. Data received? Process it. Stream closed? Maybe reconnect. Peer offline? Trigger recovery.</p>
+                        <p><strong>Snapshots:</strong> Every event includes a Snapshot - a complete picture of the Receptor's state at that moment.</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="screen animate-in">
+                <h2 class="screen-heading">Handling Overflow: Backpressure</h2>
+                <p>What if your app can't keep up with events? The Hub has configurable <span class="has-tooltip" data-tooltip="Backpressure is when a system signals that it's being overwhelmed and the sender should slow down or stop">backpressure</span> handling.</p>
+
+                <div class="translation-block">
+                    <div class="translation-code">
+<pre><span class="code-comment">// From hub.go - handleEventOverflow</span>
+func (h *Hub) handleEventOverflow(evt Event) {
+    receptor := h.receptorByPeerID(evt.PeerID)
+
+    <span class="code-keyword">switch</span> h.cfg.EventOverflowPolicy {
+    <span class="code-keyword">case</span> OverflowPolicyResetStream:
+        <span class="code-comment">// Aggressive: reset the stream</span>
+        <span class="code-comment">// to stop data flow</span>
+        receptor.handleEventOverflow(evt, policy)
+        h.emitMetric(MetricKindBackpressure, ...)
+
+    <span class="code-keyword">case</span> OverflowPolicyDrop:
+        <span class="code-comment">// Passive: just drop the event</span>
+        receptor.recordEventDrop()
+        h.emitMetric(MetricKindEventDropped, ...)
+    }
+}</pre>
+                    </div>
+                    <div class="translation-english">
+                        <h4>Managing Overload</h4>
+                        <p><strong>ResetStream (aggressive):</strong> If your app can't keep up, terminate the stream. This signals the remote peer to stop sending. Good for preventing memory exhaustion.</p>
+                        <p><strong>Drop (passive):</strong> Silently discard events when buffer is full. The stream stays open but you lose data. Good for loss-tolerant applications.</p>
+                        <p><strong>Metrics:</strong> Either way, you get metrics (EventDropped or Backpressure) so you can observe this in production.</p>
+                    </div>
+                </div>
+
+                <div class="callout">
+                    <h4>When AI Gets This Wrong</h4>
+                    <p>Many AI-generated P2P implementations don't handle backpressure - they just buffer infinitely until your app crashes. This Hub gives you two options and makes the overflow behavior observable. When steering AI, ask: "What happens if events pile up faster than I can process them?"</p>
+                </div>
+            </div>
+
+            <div class="quiz-container">
+                <p class="quiz-question">Your app is processing events slower than they arrive. What's the safest overflow policy?</p>
+                <div class="quiz-options">
+                    <div class="quiz-option" data-correct="true"><p>A. OverflowPolicyResetStream to signal the sender to pause</p></div>
+                    <div class="quiz-option" data-correct="false"><p>B. OverflowPolicyDrop to keep receiving (and potentially lose data)</p></div>
+                    <div class="quiz-option" data-correct="false"><p>C. Neither, increase buffer size infinitely</p></div>
+                </div>
+                <div class="quiz-feedback"></div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Module 5: Putting It Together -->
+    <section class="module" id="module-5">
+        <div class="module-content">
+            <header class="module-header animate-in">
+                <span class="module-number">05</span>
+                <h1 class="module-title">Putting It All Together</h1>
+                <p class="module-subtitle">Complete flow from Hub creation to data exchange</p>
+            </header>
+
+            <div class="screen animate-in">
+                <h2 class="screen-heading">The Complete Flow</h2>
+                <p>Here's what happens when two peers connect and exchange data through the Hub:</p>
+
+                <div class="chat-container">
+                    <div class="chat-message">
+                        <div class="chat-avatar" style="background: var(--color-actor-1);">Hub</div>
+                        <div class="chat-bubble">
+                            <p>Hub created on peer A. Listening for connections...</p>
+                            <p class="timestamp">hub.New()</p>
+                        </div>
+                    </div>
+                    <div class="chat-message">
+                        <div class="chat-avatar" style="background: var(--color-actor-2);">R1</div>
+                        <div class="chat-bubble sent">
+                            <p>Receptor created for peer B. Stream opened.</p>
+                            <p class="timestamp">hub.CreateReceptor()</p>
+                        </div>
+                    </div>
+                    <div class="chat-message">
+                        <div class="chat-avatar" style="background: var(--color-actor-1);">Hub</div>
+                        <div class="chat-bubble">
+                            <p>Inbound stream from peer B. Attached to receptor.</p>
+                            <p class="timestamp">hub.handleStream()</p>
+                        </div>
+                    </div>
+                    <div class="chat-message">
+                        <div class="chat-avatar" style="background: var(--color-actor-4);">App</div>
+                        <div class="chat-bubble sent">
+                            <p>Sending data to peer B...</p>
+                            <p class="timestamp">receptor.Send(payload)</p>
+                        </div>
+                    </div>
+                    <div class="chat-message">
+                        <div class="chat-avatar" style="background: var(--color-actor-1);">Hub</div>
+                        <div class="chat-bubble">
+                            <p>EventKindDataReceived on peer B. Notifying app...</p>
+                            <p class="timestamp">Events() channel</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="screen animate-in">
+                <h2 class="screen-heading">Key Patterns Summary</h2>
+
+                <div class="pattern-cards">
+                    <div class="pattern-card">
+                        <h4><span class="pattern-icon" style="background: rgba(45, 139, 85, 0.1); color: var(--color-success);">1</span> Lifecycle Management</h4>
+                        <p>Hub → CreateReceptor → use → RemoveReceptor/Close. Always clean up resources.</p>
+                    </div>
+                    <div class="pattern-card">
+                        <h4><span class="pattern-icon" style="background: rgba(42, 123, 155, 0.1); color: var(--color-info);">2</span> Event-Driven</h4>
+                        <p>Listen to Events() in a goroutine. React to lifecycle, data, and errors.</p>
+                    </div>
+                    <div class="pattern-card">
+                        <h4><span class="pattern-icon" style="background: rgba(217, 79, 48, 0.1); color: var(--color-accent);">3</span> Stream Health</h4>
+                        <p>Use ping metrics to detect stalls. Reconnect on StreamClosed if needed.</p>
+                    </div>
+                    <div class="pattern-card">
+                        <h4><span class="pattern-icon" style="background: rgba(212, 168, 67, 0.1); color: var(--color-actor-4);">4</span> Backpressure</h4>
+                        <p>Configure overflow policy based on your data criticality.</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="screen animate-in">
+                <h2 class="screen-heading">Debugging Checklist</h2>
+                <p>When things aren't working, here's where to look:</p>
+
+                <div class="translation-block">
+                    <div class="translation-code">
+<pre><span class="code-comment">// Common debugging patterns</span>
+
+<span class="code-comment">// 1. Check if receptor exists</span>
+snapshot, err := hub.Snapshot(receptorID)
+<span class="code-keyword">if</span> err != <span class="code-keyword">nil</span> {
+    log.Printf(<span class="code-string">"Receptor not found: %v"</span>, err)
+}
+
+<span class="code-comment">// 2. Check stream health</span>
+<span class="code-keyword">if</span> !snapshot.HasActiveStream {
+    log.Println(<span class="code-string">"No active stream - needs OpenStream"</span>)
+}
+
+<span class="code-comment">// 3. Check peer connectivity</span>
+connectedness := snapshot.Connectedness
+latency := snapshot.LastRTT
+
+<span class="code-comment">// 4. Monitor event drops</span>
+<span class="code-keyword">if</span> snapshot.EventDropCount > 0 {
+    log.Printf(<span class="code-string">"Events dropped: %d"</span>,
+        snapshot.EventDropCount)
+}</pre>
+                    </div>
+                    <div class="translation-english">
+                        <h4>Debug Strategy</h4>
+                        <p><strong>1. Receptor exists?</strong> Check the Snapshot. If ErrReceptorNotFound, the Receptor was never created or was already removed.</p>
+                        <p><strong>2. Stream active?</strong> HasActiveStream tells you if data can flow. If false, you need OpenStream() or the stream was closed remotely.</p>
+                        <p><strong>3. Peer connected?</strong> Connectedness and LastRTT show network health. NotConnected means the peer is unreachable.</p>
+                        <p><strong>4. Events dropping?</strong> EventDropCount indicates backpressure. Your app isn't consuming events fast enough.</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="quiz-container">
+                <p class="quiz-question">Final scenario: Data you're sending never arrives at the peer. What's the first thing to check?</p>
+                <div class="quiz-options">
+                    <div class="quiz-option" data-correct="false"><p>A. Your internet connection</p></div>
+                    <div class="quiz-option" data-correct="true"><p>B. The Receptor's HasActiveStream via Snapshot</p></div>
+                    <div class="quiz-option" data-correct="false"><p>C. Increasing buffer sizes</p></div>
+                </div>
+                <div class="quiz-feedback"></div>
+            </div>
+
+            <div class="screen animate-in" style="text-align: center; padding: var(--space-12) 0;">
+                <h2 style="font-family: var(--font-display); font-size: var(--text-3xl); margin-bottom: var(--space-6);">You've completed the course!</h2>
+                <p style="color: var(--color-text-secondary); margin-bottom: var(--space-8);">You now understand the P2P Hub architecture well enough to steer AI coding assistants effectively.</p>
+                <div style="background: var(--color-surface); border-radius: var(--radius-lg); padding: var(--space-6); display: inline-block; text-align: left; border: 1px solid var(--color-border);">
+                    <p style="font-weight: 600; margin-bottom: var(--space-3);">What you can now do:</p>
+                    <ul style="color: var(--color-text-secondary); font-size: var(--text-sm); padding-left: var(--space-5);">
+                        <li>Debug "why isn't my P2P data flowing?"</li>
+                        <li>Make architectural decisions about stream management</li>
+                        <li>Configure backpressure policies for your use case</li>
+                        <li>Spot bad AI suggestions that ignore lifecycle</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <script>
+        // Scroll animations
+        const observer = new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    entry.target.classList.add('visible');
+                    observer.unobserve(entry.target);
+                }
+            });
+        }, { rootMargin: '0px 0px -10% 0px', threshold: 0.1 });
+
+        document.querySelectorAll('.animate-in').forEach(el => observer.observe(el));
+
+        // Navigation
+        const modules = document.querySelectorAll('.module');
+        const dots = document.querySelectorAll('.nav-dot');
+        const progressBar = document.querySelector('.progress-bar');
+
+        function updateProgress() {
+            const scrollTop = window.scrollY;
+            const docHeight = document.documentElement.scrollHeight - window.innerHeight;
+            const progress = (scrollTop / docHeight) * 100;
+            progressBar.style.width = progress + '%';
+
+            // Update current dot
+            let currentModule = 0;
+            modules.forEach((mod, i) => {
+                const rect = mod.getBoundingClientRect();
+                if (rect.top <= 100) currentModule = i;
+            });
+
+            dots.forEach((dot, i) => {
+                dot.classList.remove('current', 'visited');
+                if (i < currentModule) dot.classList.add('visited');
+                if (i === currentModule) dot.classList.add('current');
+            });
+        }
+
+        window.addEventListener('scroll', () => {
+            requestAnimationFrame(updateProgress);
+        }, { passive: true });
+
+        dots.forEach((dot, i) => {
+            dot.addEventListener('click', () => {
+                modules[i].scrollIntoView({ behavior: 'smooth' });
+            });
+        });
+
+        // Keyboard navigation
+        document.addEventListener('keydown', (e) => {
+            if (['INPUT', 'TEXTAREA'].includes(e.target.tagName)) return;
+            const current = document.querySelector('.nav-dot.current');
+            const idx = Array.from(dots).indexOf(current);
+
+            if ((e.key === 'ArrowDown' || e.key === 'ArrowRight') && idx < dots.length - 1) {
+                modules[idx + 1].scrollIntoView({ behavior: 'smooth' });
+                e.preventDefault();
+            }
+            if ((e.key === 'ArrowUp' || e.key === 'ArrowLeft') && idx > 0) {
+                modules[idx - 1].scrollIntoView({ behavior: 'smooth' });
+                e.preventDefault();
+            }
+        });
+
+        // Quiz functionality
+        document.querySelectorAll('.quiz-container').forEach(quiz => {
+            const options = quiz.querySelectorAll('.quiz-option');
+            const feedback = quiz.querySelector('.quiz-feedback');
+
+            options.forEach(option => {
+                option.addEventListener('click', () => {
+                    if (option.classList.contains('correct') || option.classList.contains('wrong')) return;
+
+                    const isCorrect = option.dataset.correct === 'true';
+
+                    options.forEach(opt => {
+                        if (opt.dataset.correct === 'true') {
+                            opt.classList.add('correct');
+                        } else if (opt === option) {
+                            opt.classList.add(isCorrect ? 'correct' : 'wrong');
+                        }
+                    });
+
+                    feedback.classList.add('show', isCorrect ? 'correct' : 'wrong');
+                    feedback.textContent = isCorrect
+                        ? "Exactly! This is how the Hub actually works in practice."
+                        : "Not quite — consider what happens in the code you just saw. The correct answer highlights the actual flow.";
+                });
+            });
+        });
+
+        // Tooltips
+        const tooltip = document.createElement('div');
+        tooltip.className = 'tooltip';
+        document.body.appendChild(tooltip);
+
+        document.querySelectorAll('.has-tooltip').forEach(el => {
+            el.addEventListener('mouseenter', () => {
+                const rect = el.getBoundingClientRect();
+                tooltip.textContent = el.dataset.tooltip;
+                tooltip.classList.add('show');
+
+                const tooltipRect = tooltip.getBoundingClientRect();
+                let top = rect.top - tooltipRect.height - 8;
+                let left = rect.left + (rect.width - tooltipRect.width) / 2;
+
+                if (top < 0) {
+                    top = rect.bottom + 8;
+                    tooltip.classList.add('above');
+                }
+
+                tooltip.style.top = top + 'px';
+                tooltip.style.left = left + 'px';
+            });
+
+            el.addEventListener('mouseleave', () => {
+                tooltip.classList.remove('show', 'above');
+            });
+        });
+    </script>
+</body>
+</html>

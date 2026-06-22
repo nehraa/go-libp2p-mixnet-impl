@@ -23,3 +23,7 @@ mixnet-bench
 mixnet/.claude/
 mixnet/tests/__pycache__/
 mixnet/tests/*.pyc
+
+# Coderag model artifacts
+.coderag/
+.coderag-models/

@@ -1,0 +1,1651 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+ <meta charset="UTF-8">
+ <meta name="viewport" content="width=device-width, initial-scale=1.0">
+ <title>Understanding the Download Package</title>
+ <link rel="preconnect" href="https://fonts.googleapis.com">
+ <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+ <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,700;12..96,800&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400;1,9..40,500&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+ <style>
+ :root {
+ --color-bg: #FAF7F2;
+ --color-bg-warm: #F5F0E8;
+ --color-bg-code: #1E1E2E;
+ --color-text: #2C2A28;
+ --color-text-secondary: #6B6560;
+ --color-text-muted: #9E9790;
+ --color-border: #E5DFD6;
+ --color-border-light: #EEEBE5;
+ --color-surface: #FFFFFF;
+ --color-surface-warm: #FDF9F3;
+ --color-accent: #2A7B9B;
+ --color-accent-hover: #1F5F7A;
+ --color-accent-light: #E4F2F7;
+ --color-accent-muted: #5BA3C0;
+ --color-success: #2D8B55;
+ --color-success-light: #E8F5EE;
+ --color-error: #C93B3B;
+ --color-error-light: #FDE8E8;
+ --color-info: #2A7B9B;
+ --color-info-light: #E4F2F7;
+ --color-actor-1: #2A7B9B;
+ --color-actor-2: #D94F30;
+ --color-actor-3: #7B6DAA;
+ --color-actor-4: #D4A843;
+ --color-actor-5: #2D8B55;
+ --font-display: 'Bricolage Grotesque', Georgia, serif;
+ --font-body: 'DM Sans', -apple-system, sans-serif;
+ --font-mono: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+ --text-xs: 0.75rem;
+ --text-sm: 0.875rem;
+ --text-base: 1rem;
+ --text-lg: 1.125rem;
+ --text-xl: 1.25rem;
+ --text-2xl: 1.5rem;
+ --text-3xl: 1.875rem;
+ --text-4xl: 2.25rem;
+ --text-5xl: 3rem;
+ --text-6xl: 3.75rem;
+ --leading-tight: 1.15;
+ --leading-snug: 1.3;
+ --leading-normal: 1.6;
+ --space-1: 0.25rem;
+ --space-2: 0.5rem;
+ --space-3: 0.75rem;
+ --space-4: 1rem;
+ --space-5: 1.25rem;
+ --space-6: 1.5rem;
+ --space-8: 2rem;
+ --space-10: 2.5rem;
+ --space-12: 3rem;
+ --space-16: 4rem;
+ --space-20: 5rem;
+ --space-24: 6rem;
+ --content-width: 800px;
+ --content-width-wide: 1000px;
+ --nav-height: 50px;
+ --radius-sm: 8px;
+ --radius-md: 12px;
+ --radius-lg: 16px;
+ --radius-full: 9999px;
+ --shadow-sm: 0 1px 2px rgba(44, 42, 40, 0.05);
+ --shadow-md: 0 4px 12px rgba(44, 42, 40, 0.08);
+ --shadow-lg: 0 8px 24px rgba(44, 42, 40, 0.1);
+ --shadow-xl: 0 16px 48px rgba(44, 42, 40, 0.12);
+ --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+ --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+ --duration-fast: 150ms;
+ --duration-normal: 300ms;
+ --duration-slow: 500ms;
+ --stagger-delay: 120ms;
+ }
+
+ * { box-sizing: border-box; margin: 0; padding: 0; }
+
+ html {
+ scroll-snap-type: y proximity;
+ scroll-behavior: smooth;
+ }
+
+ body {
+ font-family: var(--font-body);
+ background: var(--color-bg);
+ color: var(--color-text);
+ line-height: var(--leading-normal);
+ overflow-x: hidden;
+ }
+
+ /* Navigation */
+ .nav {
+ position: fixed;
+ top: 0;
+ left: 0;
+ right: 0;
+ height: var(--nav-height);
+ background: rgba(250, 247, 242, 0.95);
+ backdrop-filter: blur(8px);
+ z-index: 1000;
+ border-bottom: 1px solid var(--color-border-light);
+ }
+
+ .progress-bar {
+ position: absolute;
+ top: 0;
+ left: 0;
+ height: 3px;
+ background: var(--color-accent);
+ width: 0%;
+ transition: width 0.1s;
+ }
+
+ .nav-inner {
+ max-width: var(--content-width);
+ margin: 0 auto;
+ height: 100%;
+ display: flex;
+ align-items: center;
+ justify-content: space-between;
+ padding: 0 var(--space-6);
+ }
+
+ .nav-title {
+ font-family: var(--font-display);
+ font-weight: 700;
+ font-size: var(--text-lg);
+ color: var(--color-text);
+ }
+
+ .nav-dots {
+ display: flex;
+ gap: var(--space-2);
+ }
+
+ .nav-dot {
+ width: 12px;
+ height: 12px;
+ border-radius: 50%;
+ border: 2px solid var(--color-text-muted);
+ background: transparent;
+ cursor: pointer;
+ transition: all var(--duration-fast);
+ }
+
+ .nav-dot.current {
+ border-color: var(--color-accent);
+ background: var(--color-accent);
+ box-shadow: 0 0 8px rgba(42, 123, 155, 0.4);
+ }
+
+ .nav-dot:visited {
+ background: var(--color-accent);
+ border-color: var(--color-accent);
+ }
+
+ /* Modules */
+ .module {
+ min-height: 100dvh;
+ min-height: 100vh;
+ scroll-snap-align: start;
+ padding: var(--space-16) var(--space-6);
+ padding-top: calc(var(--nav-height) + var(--space-12));
+ }
+
+ .module:nth-child(odd) { background: var(--color-bg-warm); }
+ .module:nth-child(even) { background: var(--color-bg); }
+
+ .module-content {
+ max-width: var(--content-width);
+ margin: 0 auto;
+ }
+
+ .module-header {
+ text-align: center;
+ margin-bottom: var(--space-12);
+ }
+
+ .module-number {
+ font-family: var(--font-display);
+ font-size: var(--text-6xl);
+ font-weight: 800;
+ color: var(--color-accent);
+ opacity: 0.15;
+ line-height: 1;
+ }
+
+ .module-title {
+ font-family: var(--font-display);
+ font-size: var(--text-4xl);
+ font-weight: 700;
+ margin-top: calc(var(--space-4) * -1);
+ margin-bottom: var(--space-4);
+ }
+
+ .module-subtitle {
+ font-size: var(--text-lg);
+ color: var(--color-text-secondary);
+ max-width: 600px;
+ margin: 0 auto;
+ }
+
+ /* Screens */
+ .screen {
+ margin-bottom: var(--space-12);
+ }
+
+ .screen-heading {
+ font-family: var(--font-display);
+ font-size: var(--text-2xl);
+ font-weight: 600;
+ margin-bottom: var(--space-4);
+ }
+
+ /* Animation */
+ .animate-in {
+ opacity: 0;
+ transform: translateY(20px);
+ transition: opacity var(--duration-slow) var(--ease-out), transform var(--duration-slow) var(--ease-out);
+ }
+
+ .animate-in.visible {
+ opacity: 1;
+ transform: translateY(0);
+ }
+
+ /* Translation Blocks */
+ .translation-block {
+ display: grid;
+ grid-template-columns: 1fr 1fr;
+ gap: 0;
+ border-radius: var(--radius-md);
+ overflow: hidden;
+ box-shadow: var(--shadow-md);
+ margin: var(--space-8) 0;
+ }
+
+ .translation-code {
+ background: var(--color-bg-code);
+ color: #CDD6F4;
+ padding: var(--space-6);
+ font-family: var(--font-mono);
+ font-size: var(--text-sm);
+ line-height: 1.7;
+ position: relative;
+ overflow-x: hidden;
+ }
+
+ .translation-code pre, .translation-code code {
+ white-space: pre-wrap;
+ word-break: break-word;
+ overflow-x: hidden;
+ }
+
+ .translation-english {
+ background: var(--color-surface-warm);
+ padding: var(--space-6);
+ font-size: var(--text-sm);
+ line-height: 1.7;
+ border-left: 3px solid var(--color-accent);
+ }
+
+ .translation-label {
+ position: absolute;
+ top: var(--space-2);
+ right: var(--space-3);
+ font-size: var(--text-xs);
+ text-transform: uppercase;
+ letter-spacing: 0.1em;
+ opacity: 0.5;
+ }
+
+ .translation-english .translation-label {
+ position: static;
+ color: var(--color-text-muted);
+ margin-bottom: var(--space-3);
+ display: block;
+ }
+
+ .translation-lines p {
+ margin-bottom: var(--space-3);
+ padding: var(--space-2) var(--space-3);
+ background: rgba(42, 123, 155, 0.08);
+ border-radius: var(--radius-sm);
+ }
+
+ /* Syntax Highlighting */
+ .code-keyword { color: #CBA6F7; }
+ .code-string { color: #A6E3A1; }
+ .code-function { color: #89B4FA; }
+ .code-comment { color: #6C7086; }
+ .code-number { color: #FAB387; }
+ .code-property { color: #F9E2AF; }
+ .code-operator { color: #94E2D5; }
+ .code-type { color: #F38BA8; }
+
+ /* Pattern Cards */
+ .pattern-cards {
+ display: grid;
+ grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+ gap: var(--space-4);
+ margin: var(--space-8) 0;
+ }
+
+ .pattern-card {
+ background: var(--color-surface);
+ border-radius: var(--radius-md);
+ padding: var(--space-6);
+ box-shadow: var(--shadow-sm);
+ transition: transform var(--duration-normal) var(--ease-out), box-shadow var(--duration-normal);
+ border-top: 3px solid var(--card-color, var(--color-accent));
+ }
+
+ .pattern-card:hover {
+ transform: translateY(-4px);
+ box-shadow: var(--shadow-md);
+ }
+
+ .pattern-icon {
+ width: 48px;
+ height: 48px;
+ border-radius: 50%;
+ display: flex;
+ align-items: center;
+ justify-content: center;
+ font-size: 1.25rem;
+ margin-bottom: var(--space-4);
+ background: var(--card-color, var(--color-accent));
+ color: white;
+ }
+
+ .pattern-title {
+ font-family: var(--font-display);
+ font-weight: 600;
+ font-size: var(--text-lg);
+ margin-bottom: var(--space-2);
+ }
+
+ .pattern-desc {
+ font-size: var(--text-sm);
+ color: var(--color-text-secondary);
+ }
+
+ /* Icon Rows */
+ .icon-rows {
+ display: flex;
+ flex-direction: column;
+ gap: var(--space-4);
+ margin: var(--space-8) 0;
+ }
+
+ .icon-row {
+ display: flex;
+ align-items: center;
+ gap: var(--space-4);
+ padding: var(--space-4);
+ background: var(--color-surface);
+ border-radius: var(--radius-md);
+ box-shadow: var(--shadow-sm);
+ }
+
+ .icon-row p { margin: 0; color: var(--color-text-secondary); font-size: var(--text-sm); }
+
+ .icon-circle {
+ width: 48px;
+ height: 48px;
+ border-radius: 50%;
+ display: flex;
+ align-items: center;
+ justify-content: center;
+ font-size: 1.25rem;
+ flex-shrink: 0;
+ color: white;
+ }
+
+ /* Step Cards */
+ .step-cards {
+ display: flex;
+ flex-direction: column;
+ gap: var(--space-3);
+ margin: var(--space-8) 0;
+ }
+
+ .step-card {
+ display: flex;
+ align-items: flex-start;
+ gap: var(--space-4);
+ padding: var(--space-4) var(--space-5);
+ background: var(--color-surface);
+ border-radius: var(--radius-md);
+ border-left: 3px solid var(--color-accent);
+ box-shadow: var(--shadow-sm);
+ }
+
+ .step-num {
+ width: 32px;
+ height: 32px;
+ border-radius: 50%;
+ background: var(--color-accent);
+ color: white;
+ font-weight: 700;
+ display: flex;
+ align-items: center;
+ justify-content: center;
+ font-family: var(--font-display);
+ flex-shrink: 0;
+ }
+
+ .step-body p {
+ margin: var(--space-1) 0 0;
+ color: var(--color-text-secondary);
+ font-size: var(--text-sm);
+ }
+
+ /* Callout Boxes */
+ .callout {
+ display: flex;
+ gap: var(--space-4);
+ padding: var(--space-5);
+ border-radius: var(--radius-md);
+ margin: var(--space-8) 0;
+ }
+
+ .callout-accent {
+ background: var(--color-accent-light);
+ border-left: 4px solid var(--color-accent);
+ }
+
+ .callout-info {
+ background: var(--color-info-light);
+ border-left: 4px solid var(--color-info);
+ }
+
+ .callout-warning {
+ background: var(--color-error-light);
+ border-left: 4px solid var(--color-error);
+ }
+
+ .callout-icon {
+ font-size: 1.5rem;
+ flex-shrink: 0;
+ }
+
+ .callout-title {
+ font-weight: 600;
+ display: block;
+ margin-bottom: var(--space-1);
+ }
+
+ /* Chat Animation */
+ .chat-window {
+ background: var(--color-surface);
+ border-radius: var(--radius-lg);
+ box-shadow: var(--shadow-lg);
+ overflow: hidden;
+ margin: var(--space-8) 0;
+ max-width: 600px;
+ margin-left: auto;
+ margin-right: auto;
+ }
+
+ .chat-messages {
+ padding: var(--space-5);
+ min-height: 300px;
+ max-height: 400px;
+ overflow-y: auto;
+ }
+
+ .chat-message {
+ display: none;
+ align-items: flex-start;
+ gap: var(--space-3);
+ margin-bottom: var(--space-4);
+ animation: fadeSlideUp 0.3s var(--ease-out);
+ }
+
+ .chat-avatar {
+ width: 36px;
+ height: 36px;
+ border-radius: 50%;
+ display: flex;
+ align-items: center;
+ justify-content: center;
+ font-weight: 700;
+ font-size: var(--text-sm);
+ color: white;
+ flex-shrink: 0;
+ }
+
+ .chat-bubble {
+ background: rgba(0, 0, 0, 0.05);
+ padding: var(--space-3) var(--space-4);
+ border-radius: var(--radius-md);
+ border-radius-top-left: 4px;
+ flex: 1;
+ }
+
+ .chat-sender {
+ font-weight: 600;
+ font-size: var(--text-xs);
+ text-transform: uppercase;
+ letter-spacing: 0.05em;
+ display: block;
+ margin-bottom: var(--space-1);
+ }
+
+ .chat-bubble p { margin: 0; font-size: var(--text-sm); }
+
+ .chat-typing {
+ display: none;
+ align-items: center;
+ gap: var(--space-3);
+ padding: var(--space-3) var(--space-5);
+ }
+
+ .chat-typing-dots {
+ display: flex;
+ gap: 4px;
+ }
+
+ .typing-dot {
+ width: 8px;
+ height: 8px;
+ border-radius: 50%;
+ background: var(--color-text-muted);
+ animation: typingBounce 1.4s infinite;
+ }
+
+ .typing-dot:nth-child(2) { animation-delay: 0.2s; }
+ .typing-dot:nth-child(3) { animation-delay: 0.4s; }
+
+ @keyframes typingBounce {
+ 0%, 60%, 100% { transform: translateY(0); }
+ 30% { transform: translateY(-6px); }
+ }
+
+ @keyframes fadeSlideUp {
+ from { opacity: 0; transform: translateY(10px); }
+ to { opacity: 1; transform: translateY(0); }
+ }
+
+ .chat-controls {
+ display: flex;
+ gap: var(--space-2);
+ padding: var(--space-4);
+ border-top: 1px solid var(--color-border);
+ background: var(--color-bg-warm);
+ }
+
+ .chat-controls button {
+ padding: var(--space-2) var(--space-4);
+ background: var(--color-accent);
+ color: white;
+ border: none;
+ border-radius: var(--radius-sm);
+ font-family: var(--font-body);
+ font-size: var(--text-sm);
+ cursor: pointer;
+ transition: background var(--duration-fast);
+ }
+
+ .chat-controls button:hover { background: var(--color-accent-hover); }
+ .chat-controls button.secondary { background: var(--color-text-muted); }
+
+ /* Flow Animation */
+ .flow-animation {
+ background: var(--color-surface);
+ border-radius: var(--radius-lg);
+ padding: var(--space-6);
+ box-shadow: var(--shadow-md);
+ margin: var(--space-8) 0;
+ }
+
+ .flow-actors {
+ display: flex;
+ justify-content: space-around;
+ align-items: center;
+ margin-bottom: var(--space-8);
+ position: relative;
+ }
+
+ .flow-actor {
+ text-align: center;
+ padding: var(--space-4);
+ border-radius: var(--radius-md);
+ background: var(--color-bg-warm);
+ transition: all var(--duration-normal) var(--ease-out);
+ }
+
+ .flow-actor.active {
+ box-shadow: 0 0 0 3px var(--color-accent), 0 0 20px rgba(42, 123, 155, 0.2);
+ transform: scale(1.05);
+ }
+
+ .flow-actor-icon {
+ width: 60px;
+ height: 60px;
+ border-radius: 50%;
+ display: flex;
+ align-items: center;
+ justify-content: center;
+ font-size: 1.5rem;
+ font-weight: 700;
+ color: white;
+ margin: 0 auto var(--space-2);
+ }
+
+ .flow-packet {
+ position: absolute;
+ width: 24px;
+ height: 24px;
+ background: var(--color-accent);
+ border-radius: 50%;
+ opacity: 0;
+ transition: all 0.5s var(--ease-out);
+ }
+
+ .flow-packet.visible { opacity: 1; }
+
+ .flow-step-label {
+ text-align: center;
+ font-size: var(--text-lg);
+ color: var(--color-text-secondary);
+ margin-bottom: var(--space-4);
+ min-height: 3rem;
+ }
+
+ .flow-controls {
+ display: flex;
+ justify-content: center;
+ gap: var(--space-2);
+ }
+
+ /* Quizzes */
+ .quiz-container {
+ background: var(--color-surface);
+ border-radius: var(--radius-lg);
+ padding: var(--space-6);
+ box-shadow: var(--shadow-md);
+ margin: var(--space-8) 0;
+ }
+
+ .quiz-question {
+ font-family: var(--font-display);
+ font-size: var(--text-lg);
+ font-weight: 600;
+ margin-bottom: var(--space-4);
+ }
+
+ .quiz-options {
+ display: flex;
+ flex-direction: column;
+ gap: var(--space-3);
+ }
+
+ .quiz-option {
+ display: flex;
+ align-items: center;
+ gap: var(--space-3);
+ padding: var(--space-3) var(--space-4);
+ border: 2px solid var(--color-border);
+ border-radius: var(--radius-sm);
+ background: var(--color-surface);
+ cursor: pointer;
+ width: 100%;
+ text-align: left;
+ font-family: var(--font-body);
+ font-size: var(--text-base);
+ transition: border-color var(--duration-fast), background var(--duration-fast);
+ }
+
+ .quiz-option:hover { border-color: var(--color-accent-muted); }
+ .quiz-option.selected { border-color: var(--color-accent); background: var(--color-accent-light); }
+ .quiz-option.correct { border-color: var(--color-success); background: var(--color-success-light); }
+ .quiz-option.incorrect { border-color: var(--color-error); background: var(--color-error-light); }
+
+ .quiz-option-radio {
+ width: 18px;
+ height: 18px;
+ border-radius: 50%;
+ border: 2px solid var(--color-border);
+ flex-shrink: 0;
+ transition: all var(--duration-fast);
+ }
+
+ .quiz-option.selected .quiz-option-radio {
+ border-color: var(--color-accent);
+ background: var(--color-accent);
+ box-shadow: inset 0 0 0 3px white;
+ }
+
+ .quiz-feedback {
+ max-height: 0;
+ overflow: hidden;
+ opacity: 0;
+ transition: max-height var(--duration-normal), opacity var(--duration-normal);
+ }
+
+ .quiz-feedback.show {
+ max-height: 200px;
+ opacity: 1;
+ padding: var(--space-3);
+ margin-top: var(--space-2);
+ border-radius: var(--radius-sm);
+ }
+
+ .quiz-feedback.success { background: var(--color-success-light); color: var(--color-success); }
+ .quiz-feedback.error { background: var(--color-error-light); color: var(--color-error); }
+
+ .quiz-check-btn {
+ margin-top: var(--space-4);
+ padding: var(--space-3) var(--space-6);
+ background: var(--color-accent);
+ color: white;
+ border: none;
+ border-radius: var(--radius-sm);
+ font-family: var(--font-body);
+ font-weight: 600;
+ cursor: pointer;
+ }
+
+ /* File Tree */
+ .file-tree {
+ font-family: var(--font-mono);
+ font-size: var(--text-sm);
+ background: var(--color-surface);
+ padding: var(--space-5);
+ border-radius: var(--radius-md);
+ margin: var(--space-8) 0;
+ }
+
+ .ft-folder, .ft-file {
+ padding: var(--space-2) var(--space-3);
+ border-left: 2px solid var(--color-border-light);
+ margin-left: var(--space-4);
+ }
+
+ .ft-folder > .ft-name { color: var(--color-accent); font-weight: 600; }
+ .ft-folder > .ft-name::before { content: '📁 '; }
+ .ft-file > .ft-name::before { content: '📄 '; }
+
+ .ft-desc {
+ color: var(--color-text-secondary);
+ font-family: var(--font-body);
+ margin-left: var(--space-2);
+ font-size: var(--text-xs);
+ }
+
+ /* Tooltips */
+ .term {
+ border-bottom: 1.5px dashed var(--color-accent-muted);
+ cursor: pointer;
+ position: relative;
+ }
+
+ .term:hover, .term.active {
+ border-bottom-color: var(--color-accent);
+ color: var(--color-accent);
+ }
+
+ .term-tooltip {
+ position: fixed;
+ background: var(--color-bg-code);
+ color: #CDD6F4;
+ padding: var(--space-3) var(--space-4);
+ border-radius: var(--radius-sm);
+ font-size: var(--text-sm);
+ font-family: var(--font-body);
+ line-height: var(--leading-normal);
+ width: max(280px, min(320px, 80vw));
+ box-shadow: var(--shadow-lg);
+ pointer-events: none;
+ opacity: 0;
+ transition: opacity var(--duration-fast);
+ z-index: 10000;
+ }
+
+ .term-tooltip::after {
+ content: '';
+ position: absolute;
+ top: 100%;
+ left: 50%;
+ transform: translateX(-50%);
+ border: 6px solid transparent;
+ border-top-color: var(--color-bg-code);
+ }
+
+ .term-tooltip.visible { opacity: 1; }
+
+ /* Responsive */
+ @media (max-width: 768px) {
+ :root {
+ --text-4xl: 1.875rem;
+ --text-5xl: 2.25rem;
+ --text-6xl: 3rem;
+ }
+ .translation-block { grid-template-columns: 1fr; }
+ .translation-english { border-left: none; border-top: 3px solid var(--color-accent); }
+ .pattern-cards { grid-template-columns: 1fr; }
+ .flow-actors { flex-direction: column; gap: var(--space-4); }
+ }
+
+ @media (max-width: 480px) {
+ :root {
+ --text-4xl: 1.5rem;
+ --text-5xl: 1.875rem;
+ --text-6xl: 2.25rem;
+ }
+ .module { padding: var(--space-8) var(--space-4); }
+ }
+
+ /* Scrollbar */
+ ::-webkit-scrollbar { width: 6px; }
+ ::-webkit-scrollbar-track { background: transparent; }
+ ::-webkit-scrollbar-thumb {
+ background: var(--color-border);
+ border-radius: var(--radius-full);
+ }
+ </style>
+</head>
+<body>
+ <!-- Navigation -->
+ <nav class="nav">
+ <div class="progress-bar" id="progress-bar"></div>
+ <div class="nav-inner">
+ <span class="nav-title">Download Package Course</span>
+ <div class="nav-dots">
+ <button class="nav-dot current" data-target="module-1"></button>
+ <button class="nav-dot" data-target="module-2"></button>
+ <button class="nav-dot" data-target="module-3"></button>
+ <button class="nav-dot" data-target="module-4"></button>
+ <button class="nav-dot" data-target="module-5"></button>
+ <button class="nav-dot" data-target="module-6"></button>
+ </div>
+ </div>
+ </nav>
+
+ <!-- Module 1: What This Package Does -->
+ <section class="module" id="module-1">
+ <div class="module-content">
+ <header class="module-header animate-in">
+ <span class="module-number">01</span>
+ <h1 class="module-title">What This Package Does</h1>
+ <p class="module-subtitle">Distributed file downloading through parallel shard fetching and reconstruction — imagine downloading a movie not from one server, but from many friends' computers at once</p>
+ </header>
+
+ <div class="module-body">
+ <section class="screen animate-in">
+ <h2 class="screen-heading">The Big Picture</h2>
+ <p>The <span class="term" data-definition="A package in Go is like a folder containing related code files that work together to solve a specific problem.">download package</span> is part of a <span class="term" data-definition="A peer-to-peer (P2P) network lets computers talk directly to each other without needing a central server.">peer-to-peer</span> file sharing system. Instead of downloading a complete file from one source, it breaks files into smaller <span class="term" data-definition="A shard is a piece of a larger file, like one slice of a pizza.">shards</span> and downloads them in parallel from multiple sources.</p>
+
+ <div class="step-cards" style="margin-top: var(--space-8);">
+ <div class="step-card" style="border-left-color: var(--color-actor-1);">
+ <div class="step-num" style="background: var(--color-actor-1);">1</div>
+ <div class="step-body">
+ <strong>File gets split into shards</strong>
+ <p>A large file is divided into equal-sized pieces, each with a unique identifier and cryptographic fingerprint</p>
+ </div>
+ </div>
+ <div class="step-card" style="border-left-color: var(--color-actor-2);">
+ <div class="step-num" style="background: var(--color-actor-2);">2</div>
+ <div class="step-body">
+ <strong>Shards are distributed to holders</strong>
+ <p>Each shard is stored on different computers (peers) in the network — like storing copies at different friends' houses</p>
+ </div>
+ </div>
+ <div class="step-card" style="border-left-color: var(--color-actor-3);">
+ <div class="step-num" style="background: var(--color-actor-3);">3</div>
+ <div class="step-body">
+ <strong>Download manager fetches shards in parallel</strong>
+ <p>When you want the file back, the download manager reaches out to multiple holders simultaneously</p>
+ </div>
+ </div>
+ <div class="step-card" style="border-left-color: var(--color-actor-4);">
+ <div class="step-num" style="background: var(--color-actor-4);">4</div>
+ <div class="step-body">
+ <strong>Shards are verified and reconstructed</strong>
+ <p>Each shard is checked for integrity, then assembled back into the original file</p>
+ </div>
+ </div>
+ </div>
+ </section>
+
+ <section class="screen animate-in">
+ <h2 class="screen-heading">Why This Approach Works</h2>
+ <div class="pattern-cards">
+ <div class="pattern-card" style="--card-color: var(--color-actor-1);">
+ <div class="pattern-icon">🚀</div>
+ <h4 class="pattern-title">Speed Through Parallelism</h4>
+ <p class="pattern-desc">Download multiple shards simultaneously instead of waiting for one stream — like having multiple delivery trucks instead of one</p>
+ </div>
+ <div class="pattern-card" style="--card-color: var(--color-actor-2);">
+ <div class="pattern-icon">🔒</div>
+ <h4 class="pattern-title">Integrity Verification</h4>
+ <p class="pattern-desc">Every shard is cryptographically hashed — any tampering is detected immediately, like a tamper-evident seal</p>
+ </div>
+ <div class="pattern-card" style="--card-color: var(--color-actor-3);">
+ <div class="pattern-icon">🌐</div>
+ <h4 class="pattern-title">No Single Point of Failure</h4>
+ <p class="pattern-desc">If one holder is offline, others may still have the shards you need — distributed resilience</p>
+ </div>
+ </div>
+ </section>
+ </div>
+ </div>
+ </section>
+
+ <!-- Module 2: Meet the Actors -->
+ <section class="module" id="module-2">
+ <div class="module-content">
+ <header class="module-header animate-in">
+ <span class="module-number">02</span>
+ <h1 class="module-title">Meet the Actors</h1>
+ <p class="module-subtitle">Four key players work together to make distributed downloading possible</p>
+ </header>
+
+ <div class="module-body">
+ <section class="screen animate-in">
+ <h2 class="screen-heading">The Cast of Characters</h2>
+ <div class="icon-rows">
+ <div class="icon-row">
+ <div class="icon-circle" style="background: var(--color-actor-1);">📥</div>
+ <div>
+ <strong>Manager</strong>
+ <p>The <span class="term" data-definition="The Manager is like a project coordinator — it figures out what needs to be done, delegates work, and brings everything together.">Manager</span> orchestrates downloads. It's the requester side — the one asking for shards.</p>
+ </div>
+ </div>
+ <div class="icon-row">
+ <div class="icon-circle" style="background: var(--color-actor-2);">📤</div>
+ <div>
+ <strong>HolderService</strong>
+ <p>The <span class="term" data-definition="HolderService runs on computers that store shards and serve them to requesters — like a mini file server.">HolderService</span> serves shards to anyone who's allowed to ask. It's the responder side.</p>
+ </div>
+ </div>
+ <div class="icon-row">
+ <div class="icon-circle" style="background: var(--color-actor-3);">📋</div>
+ <div>
+ <strong>ShardProvider</strong>
+ <p>The <span class="term" data-definition="An interface is like a contract — it defines methods that must be provided, without caring about the implementation.">ShardProvider interface</span> abstracts where shards come from. The default implementation reads from files on disk.</p>
+ </div>
+ </div>
+ <div class="icon-row">
+ <div class="icon-circle" style="background: var(--color-actor-4);">🧩</div>
+ <div>
+ <strong>ThresholdReconstructor</strong>
+ <p>The <span class="term" data-definition="This interface handles putting shards back together — like assembling a puzzle, but with mathematical guarantees.">ThresholdReconstructor</span> rebuilds original files from partial shards using redundancy schemes (not shown in this implementation).</p>
+ </div>
+ </div>
+ </div>
+ </section>
+
+ <section class="screen animate-in">
+ <h2 class="screen-heading">File Structure Overview</h2>
+ <div class="file-tree">
+ <div class="ft-folder open">
+ <span class="ft-name">p2p/download/</span>
+ <span class="ft-desc">Download package root</span>
+ <div class="ft-children">
+ <div class="ft-file">
+ <span class="ft-name">manager.go</span>
+ <span class="ft-desc">Download orchestration and shard fetching</span>
+ </div>
+ <div class="ft-file">
+ <span class="ft-name">holder.go</span>
+ <span class="ft-desc">Server that provides shards to requesters</span>
+ </div>
+ <div class="ft-file">
+ <span class="ft-name">types.go</span>
+ <span class="ft-desc">Data structures and interfaces</span>
+ </div>
+ <div class="ft-file">
+ <span class="ft-name">wire.go</span>
+ <span class="ft-desc">Network message encoding/decoding</span>
+ </div>
+ <div class="ft-file">
+ <span class="ft-name">manifest.go</span>
+ <span class="ft-desc">Cryptographic manifest operations</span>
+ </div>
+ <div class="ft-file">
+ <span class="ft-name">config.go</span>
+ <span class="ft-desc">Configuration and defaults</span>
+ </div>
+ <div class="ft-file">
+ <span class="ft-name">provider.go</span>
+ <span class="ft-desc">File-based shard provider</span>
+ </div>
+ <div class="ft-file">
+ <span class="ft-name">util.go</span>
+ <span class="ft-desc">Helper utilities</span>
+ </div>
+ </div>
+ </div>
+ </div>
+ </section>
+ </div>
+ </div>
+ </section>
+
+ <!-- Module 3: How the Request Flows -->
+ <section class="module" id="module-3">
+ <div class="module-content">
+ <header class="module-header animate-in">
+ <span class="module-number">03</span>
+ <h1 class="module-title">How the Request Flows</h1>
+ <p class="module-subtitle">From "I want that file" to "Here's your reconstructed data"</p>
+ </header>
+
+ <div class="module-body">
+ <section class="screen animate-in">
+ <h2 class="screen-heading">The Download Conversation</h2>
+ <p>Watch how the Manager and HolderService communicate to fetch a single shard:</p>
+
+ <div class="chat-window">
+ <div class="chat-messages" id="chat-messages">
+ <div class="chat-message" data-msg="0" data-sender="manager" style="display:none">
+ <div class="chat-avatar" style="background: var(--color-actor-1);">M</div>
+ <div class="chat-bubble">
+ <span class="chat-sender" style="color: var(--color-actor-1);">Manager</span>
+ <p>"Hey Holder, I need shard #3 from upload 'abc123'. Here's my request ID: req-456"</p>
+ </div>
+ </div>
+ <div class="chat-message" data-msg="1" data-sender="holder" style="display:none">
+ <div class="chat-avatar" style="background: var(--color-actor-2);">H</div>
+ <div class="chat-bubble">
+ <span class="chat-sender" style="color: var(--color-actor-2);">HolderService</span>
+ <p>"Got it! Let me open that shard file... Sending chunk 1 (64KB)..."</p>
+ </div>
+ </div>
+ <div class="chat-message" data-msg="2" data-sender="holder" style="display:none">
+ <div class="chat-avatar" style="background: var(--color-actor-2);">H</div>
+ <div class="chat-bubble">
+ <span class="chat-sender" style="color: var(--color-actor-2);">HolderService</span>
+ <p>"Chunk 2... Chunk 3... All done! That's 192KB total."</p>
+ </div>
+ </div>
+ <div class="chat-message" data-msg="3" data-sender="manager" style="display:none">
+ <div class="chat-avatar" style="background: var(--color-actor-1);">M</div>
+ <div class="chat-bubble">
+ <span class="chat-sender" style="color: var(--color-actor-1);">Manager</span>
+ <p>"Received and verified against the manifest hash. Perfect match!"</p>
+ </div>
+ </div>
+ </div>
+
+ <div class="chat-typing" id="chat-typing" style="display:none">
+ <div class="chat-avatar" id="typing-avatar">?</div>
+ <div class="chat-typing-dots">
+ <span class="typing-dot"></span>
+ <span class="typing-dot"></span>
+ <span class="typing-dot"></span>
+ </div>
+ </div>
+
+ <div class="chat-controls">
+ <button onclick="playChatNext()">Next Message</button>
+ <button onclick="playChatAll()" class="secondary">Play All</button>
+ <button onclick="resetChat()" class="secondary">Replay</button>
+ </div>
+ </div>
+ </section>
+
+ <section class="screen animate-in">
+ <h2 class="screen-heading">The Shard Receiver</h2>
+ <p>When the Manager requests a shard, it creates a <span class="term" data-definition="A receiver is like a mailbox with a slot — it waits for pieces (chunks) to arrive and assembles them into a complete package.">shardReceiver</span> that handles incoming data chunks:</p>
+
+ <div class="translation-block">
+ <div class="translation-code">
+ <span class="translation-label">CODE</span>
+ <pre><code><span class="code-line"><span class="code-keyword">func</span> <span class="code-function">newShardReceiver</span>(</span>
+<span class="code-line"> uploadID <span class="code-keyword">string</span>,</span>
+<span class="code-line"> shardIndex <span class="code-keyword">int</span>,</span>
+<span class="code-line"> descriptor ShardDescriptor,</span>
+<span class="code-line"> tempPath <span class="code-keyword">string</span>,</span>
+<span class="code-line">) (*shardReceiver, <span class="code-keyword">error</span>) {</span>
+<span class="code-line"> file, err := os.<span class="code-function">OpenFile</span>(</span>
+<span class="code-line"> tempPath,</span>
+<span class="code-line"> os.O_CREATE|os.O_TRUNC|os.O_WRONLY,</span>
+<span class="code-line"> <span class="code-number">0o644</span>,</span>
+<span class="code-line"> )</span>
+<span class="code-line"> <span class="code-keyword">return</span> &shardReceiver{</span>
+<span class="code-line"> file: file,</span>
+<span class="code-line"> hasher: sha256.<span class="code-function">New</span>(),</span>
+<span class="code-line"> done: <span class="code-function">make</span>(<span class="code-keyword">chan</span> <span class="code-keyword">struct</span>{}),</span>
+<span class="code-line"> }, <span class="code-keyword">nil</span></span>
+<span class="code-line">}</span></code></pre>
+ </div>
+ <div class="translation-english">
+ <span class="translation-label">PLAIN ENGLISH</span>
+ <div class="translation-lines">
+ <p>Create a new receiver with the upload ID and which shard we're expecting...</p>
+ <p>The shard index tells us which piece this is (0, 1, 2, etc.)...</p>
+ <p>The descriptor contains expected size and hash for verification...</p>
+ <p>tempPath is where we'll write the shard while downloading...</p>
+ <p>Open the temp file for writing, creating it if needed...</p>
+ <p>OS flags: create, truncate, write-only mode...</p>
+ <p>File permissions: owner can read/write, others read-only...</p>
+ <p>Return the receiver struct we just built...</p>
+ <p>Store the open file handle to write chunks to...</p>
+ <p>Create a SHA-256 hasher to verify the downloaded data...</p>
+ <p>Create a channel to signal when downloading is complete...</p>
+ </div>
+ </div>
+ </div>
+ </section>
+ </div>
+ </div>
+ </section>
+
+ <!-- Module 4: The Wire Protocol -->
+ <section class="module" id="module-4">
+ <div class="module-content">
+ <header class="module-header animate-in">
+ <span class="module-number">04</span>
+ <h1 class="module-title">The Wire Protocol</h1>
+ <p class="module-subtitle">How computers agree on what messages mean</p>
+ </header>
+
+ <div class="module-body">
+ <section class="screen animate-in">
+ <h2 class="screen-heading">Frame Types</h2>
+ <p>Communication happens through <span class="term" data-definition="A frame is a structured message format — like an envelope with a specific layout that both sender and receiver understand.">frames</span>. Each frame has a kind byte indicating its purpose:</p>
+
+ <div class="pattern-cards">
+ <div class="pattern-card" style="--card-color: var(--color-actor-1);">
+ <div class="pattern-icon">📤</div>
+ <h4 class="pattern-title">PullRequest (0x11)</h4>
+ <p class="pattern-desc">"Please send me shard #X from upload Y" — the opening request from Manager to Holder</p>
+ </div>
+ <div class="pattern-card" style="--card-color: var(--color-actor-2);">
+ <div class="pattern-icon">📦</div>
+ <h4 class="pattern-title">ShardChunk (0x12)</h4>
+ <p class="pattern-desc">A piece of actual shard data with offset information for reassembly</p>
+ </div>
+ <div class="pattern-card" style="--card-color: var(--color-actor-3);">
+ <div class="pattern-icon">✅</div>
+ <h4 class="pattern-title">ShardEnd (0x13)</h4>
+ <p class="pattern-desc">Marks the end of a shard transfer with total byte count</p>
+ </div>
+ <div class="pattern-card" style="--card-color: var(--color-actor-4);">
+ <div class="pattern-icon">⚠️</div>
+ <h4 class="pattern-title">Error (0x14)</div>
+ <p class="pattern-desc">Something went wrong — includes error message explaining what</p>
+ </div>
+ </div>
+ </section>
+
+ <section class="screen animate-in">
+ <h2 class="screen-heading">Binary Encoding</h2>
+ <p>Messages use <span class="term" data-definition="Binary encoding means writing data in a compact format of 1s and 0s (bytes) rather than human-readable text like JSON.">binary encoding</span> for efficiency. Here's how a pull request frame gets encoded:</p>
+
+ <div class="translation-block">
+ <div class="translation-code">
+ <span class="translation-label">CODE</span>
+ <pre><code><span class="code-line"><span class="code-keyword">func</span> <span class="code-function">encodePullRequestFrame</span>(</span>
+<span class="code-line"> f pullRequestFrame,</span>
+<span class="code-line">) ([]<span class="code-keyword">byte</span>, <span class="code-keyword">error</span>) {</span>
+<span class="code-line"> uploadLen := <span class="code-function">len</span>(f.UploadID)</span>
+<span class="code-line"> reqLen := <span class="code-function">len</span>(f.RequestID)</span>
+<span class="code-line"> out := <span class="code-function">make</span>([]<span class="code-keyword">byte</span>,</span>
+<span class="code-line"> <span class="code-number">2</span>+uploadLen+<span class="code-number">2</span>+reqLen+<span class="code-number">4</span>)</span>
+<span class="code-line"> pos := <span class="code-number">0</span></span>
+<span class="code-line"> binary.BigEndian.<span class="code-function">PutUint16</span>(</span>
+<span class="code-line"> out[pos:pos+<span class="code-number">2</span>],</span>
+<span class="code-line"> <span class="code-function">uint16</span>(uploadLen),</span>
+<span class="code-line"> )</span></code></pre>
+ </div>
+ <div class="translation-english">
+ <span class="translation-label">PLAIN ENGLISH</span>
+ <div class="translation-lines">
+ <p>Function to turn a pull request into raw bytes...</p>
+ <p>The frame contains UploadID, RequestID, and ShardIndex...</p>
+ <p>Calculate how much memory we need to allocate...</p>
+ <p>Total size = lengths (2 bytes each) + strings + shard index (4 bytes)...</p>
+ <p>Create a byte slice of exactly that size...</p>
+ <p>Start writing at position 0...</p>
+ <p>Write the upload ID length as 2 bytes in big-endian format...</p>
+ <p>Target the first 2 bytes of our buffer...</p>
+ <p>Convert Go's int to unsigned 16-bit for network compatibility...</p>
+ </div>
+ </div>
+ </div>
+
+ <div class="callout callout-accent">
+ <div class="callout-icon">💡</div>
+ <div class="callout-content">
+ <strong class="callout-title">Key Insight</strong>
+ <p>The <span class="term" data-definition="Big-endian means the most significant byte comes first — like writing numbers with the largest digit on the left. It's a standard for network communication.">big-endian</span> format ensures any computer, regardless of architecture, can read the message correctly. This is one of those "agree on the rules" moments that make the internet work.</p>
+ </div>
+ </div>
+ </section>
+ </div>
+ </div>
+ </section>
+
+ <!-- Module 5: Security & Integrity -->
+ <section class="module" id="module-5">
+ <div class="module-content">
+ <header class="module-header animate-in">
+ <span class="module-number">05</span>
+ <h1 class="module-title">Security & Integrity</h1>
+ <p class="module-subtitle">How do you know the file you got is the file you wanted?</p>
+ </header>
+
+ <div class="module-body">
+ <section class="screen animate-in">
+ <h2 class="screen-heading">The Manifest</h2>
+ <p>Every upload has a <span class="term" data-definition="A manifest is like a shipping manifest on a cargo ship — it lists everything that should be there and how to verify it.">manifest</span> — a cryptographically signed document describing all shards. It includes:</p>
+
+ <div class="step-cards">
+ <div class="step-card">
+ <div class="step-num">1</div>
+ <div class="step-body">
+ <strong>Upload ID</strong>
+ <p>A unique identifier for this specific upload</p>
+ </div>
+ </div>
+ <div class="step-card">
+ <div class="step-num">2</div>
+ <div class="step-body">
+ <strong>Total Shards</strong>
+ <p>How many pieces the file was split into</p>
+ </div>
+ </div>
+ <div class="step-card">
+ <div class="step-num">3</div>
+ <div class="step-body">
+ <strong>Shard Descriptors</strong>
+ <p>For each shard: index, holder peer ID, size, and SHA-256 hash</p>
+ </div>
+ </div>
+ <div class="step-card">
+ <div class="step-num">4</div>
+ <div class="step-body">
+ <strong>Cryptographic Signature</strong>
+ <p>Proves the manifest came from the original uploader, not an imposter</p>
+ </div>
+ </div>
+ </div>
+ </section>
+
+ <section class="screen animate-in">
+ <h2 class="screen-heading">Verification in Action</h2>
+ <p>When a shard finishes downloading, the Manager validates it against the manifest:</p>
+
+ <div class="translation-block">
+ <div class="translation-code">
+ <span class="translation-label">CODE</span>
+ <pre><code><span class="code-line"><span class="code-keyword">func</span> (r *shardReceiver) <span class="code-function">handleEnd</span>(</span>
+<span class="code-line"> frame shardEndFrame,</span>
+<span class="code-line">) {</span>
+<span class="code-line"> actualDigest := r.hasher.<span class="code-function">Sum</span>(<span class="code-keyword">nil</span>)</span>
+<span class="code-line"> <span class="code-keyword">if</span> !<span class="code-function">digestEqual</span>(actualDigest,</span>
+<span class="code-line"> r.descriptor.Digest) {</span>
+<span class="code-line"> r.<span class="code-function">finishLocked</span>(fmt.<span class="code-function">Errorf</span>(</span>
+<span class="code-line"> <span class="code-string">"%w: shard %d digest mismatch"</span>,</span>
+<span class="code-line"> ErrShardIntegrity,</span>
+<span class="code-line"> r.shardIndex,</span>
+<span class="code-line"> ))</span>
+<span class="code-line"> <span class="code-keyword">return</span></span>
+<span class="code-line"> }</span>
+<span class="code-line"> r.completed = <span class="code-keyword">true</span></span>
+<span class="code-line">}</span></code></pre>
+ </div>
+ <div class="translation-english">
+ <span class="translation-label">PLAIN ENGLISH</span>
+ <div class="translation-lines">
+ <p>Method called when we receive the "end of shard" frame...</p>
+ <p>The frame tells us how many bytes were sent total...</p>
+ <p>Compute the SHA-256 hash of everything we received...</p>
+ <p>Compare actual hash against the expected hash from manifest...</p>
+ <p>The expected digest was in the descriptor we saved earlier...</p>
+ <p>If hashes don't match, create an error explaining what failed...</p>
+ <p>Include the standard "integrity check failed" error type...</p>
+ <p>Also include which shard number failed for debugging...</p>
+ <p>End the error formatting...</p>
+ <p>Exit the function early — verification failed...</p>
+ <p>If we got here, hashes matched! Mark download complete...</p>
+ </div>
+ </div>
+ </div>
+
+ <div class="callout callout-warning">
+ <div class="callout-icon">🛡️</div>
+ <div class="callout-content">
+ <strong class="callout-title">Security Principle</strong>
+ <p><span class="term" data-definition="Trust But Verify is a security principle — you accept data from others, but always check it's exactly what they claimed.">Trust But Verify</span>: Even trusted peers could have corrupted files, network errors, or malicious actors. The manifest signature proves authorship; the hash proves integrity. Never skip verification.</p>
+ </div>
+ </div>
+ </section>
+ </div>
+ </div>
+ </section>
+
+ <!-- Module 6: Your Turn -->
+ <section class="module" id="module-6">
+ <div class="module-content">
+ <header class="module-header animate-in">
+ <span class="module-number">06</span>
+ <h1 class="module-title">Your Turn</h1>
+ <p class="module-subtitle">Test your understanding with a quick quiz</p>
+ </header>
+
+ <div class="module-body">
+ <section class="screen animate-in">
+ <div class="quiz-container">
+ <div class="quiz-question-block" data-question="q1" data-correct="b">
+ <h3 class="quiz-question">1. The download package uses parallel downloading primarily to:</h3>
+ <div class="quiz-options">
+ <button class="quiz-option" data-value="a" onclick="selectOption(this)">
+ <div class="quiz-option-radio"></div>
+ <span>Reduce memory usage on the Manager</span>
+ </button>
+ <button class="quiz-option" data-value="b" onclick="selectOption(this)">
+ <div class="quiz-option-radio"></div>
+ <span>Download multiple shards simultaneously from different sources</span>
+ </button>
+ <button class="quiz-option" data-value="c" onclick="selectOption(this)">
+ <div class="quiz-option-radio"></div>
+ <span>Encrypt data more efficiently</span>
+ </button>
+ </div>
+ <div class="quiz-feedback" id="q1-feedback"></div>
+ </div>
+
+ <div class="quiz-question-block" data-question="q2" data-correct="c" style="margin-top: var(--space-8);">
+ <h3 class="quiz-question">2. What happens if a downloaded shard's SHA-256 hash doesn't match the manifest?</h3>
+ <div class="quiz-options">
+ <button class="quiz-option" data-value="a" onclick="selectOption(this)">
+ <div class="quiz-option-radio"></div>
+ <span>The Manager tries to fix the corrupted bytes</span>
+ </button>
+ <button class="quiz-option" data-value="b" onclick="selectOption(this)">
+ <div class="quiz-option-radio"></div>
+ <span>The shard is accepted anyway (hashes are just suggestions)</span>
+ </button>
+ <button class="quiz-option" data-value="c" onclick="selectOption(this)">
+ <div class="quiz-option-radio"></div>
+ <span>An ErrShardIntegrity error is returned and the download fails</span>
+ </button>
+ </div>
+ <div class="quiz-feedback" id="q2-feedback"></div>
+ </div>
+
+ <div class="quiz-question-block" data-question="q3" data-correct="a" style="margin-top: var(--space-8);">
+ <h3 class="quiz-question">3. In the chat example, why does the HolderService send chunks instead of the whole shard at once?</h3>
+ <div class="quiz-options">
+ <button class="quiz-option" data-value="a" onclick="selectOption(this)">
+ <div class="quiz-option-radio"></div>
+ <span>To handle large files and allow streaming without loading everything into memory</span>
+ </button>
+ <button class="quiz-option" data-value="b" onclick="selectOption(this)">
+ <div class="quiz-option-radio"></div>
+ <span>Because the wire protocol requires exactly 64KB chunks</span>
+ </button>
+ <button class="quiz-option" data-value="c" onclick="selectOption(this)">
+ <div class="quiz-option-radio"></div>
+ <span>To make the download slower and more reliable</span>
+ </button>
+ </div>
+ <div class="quiz-feedback" id="q3-feedback"></div>
+ </div>
+
+ <div class="quiz-question-block" data-question="q4" data-correct="b" style="margin-top: var(--space-8);">
+ <h3 class="quiz-question">4. Where is the shard data written temporarily during download?</h3>
+ <div class="quiz-options">
+ <button class="quiz-option" data-value="a" onclick="selectOption(this)">
+ <div class="quiz-option-radio"></div>
+ <span>Directly to the final output file</span>
+ </button>
+ <button class="quiz-option" data-value="b" onclick="selectOption(this)">
+ <div class="quiz-option-radio"></div>
+ <span>To a temporary file, then renamed to final path only after verification</span>
+ </button>
+ <button class="quiz-option" data-value="c" onclick="selectOption(this)">
+ <div class="quiz-option-radio"></div>
+ <span>Only in memory, never written to disk</span>
+ </button>
+ </div>
+ <div class="quiz-feedback" id="q4-feedback"></div>
+ </div>
+
+ <button class="quiz-check-btn" onclick="checkQuiz()">Check Answers</button>
+ </div>
+ </section>
+
+ <section class="screen animate-in">
+ <h2 class="screen-heading">What You Learned</h2>
+ <div class="pattern-cards">
+ <div class="pattern-card" style="--card-color: var(--color-success);">
+ <div class="pattern-icon">✅</div>
+ <h4 class="pattern-title">Parallel Downloads</h4>
+ <p class="pattern-desc">The Manager fetches multiple shards concurrently using goroutines and semaphores</p>
+ </div>
+ <div class="pattern-card" style="--card-color: var(--color-success);">
+ <div class="pattern-icon">✅</div>
+ <h4 class="pattern-title">Binary Protocol</h4>
+ <p class="pattern-desc">Frame-based messaging with type bytes, big-endian encoding, and length-prefixed strings</p>
+ </div>
+ <div class="pattern-card" style="--card-color: var(--color-success);">
+ <div class="pattern-icon">✅</div>
+ <h4 class="pattern-title">Cryptographic Verification</h4>
+ <p class="pattern-desc">SHA-256 hashes verify integrity; signed manifests prove authenticity</p>
+ </div>
+ </div>
+
+ <div class="callout callout-accent" style="margin-top: var(--space-8);">
+ <div class="callout-icon">🎓</div>
+ <div class="callout-content">
+ <strong class="callout-title">Ready to Explore</strong>
+ <p>You now understand how distributed downloading works. When you use AI coding tools, you can: specify parallel fetching patterns, request integrity verification, design binary protocols, and think about security from the start. Happy coding!</p>
+ </div>
+ </div>
+ </section>
+ </div>
+ </div>
+ </section>
+
+ <script>
+ // Intersection Observer for animations
+ const observer = new IntersectionObserver((entries) => {
+ entries.forEach(entry => {
+ if (entry.isIntersecting) {
+ entry.target.classList.add('visible');
+ observer.unobserve(entry.target);
+ }
+ });
+ }, { rootMargin: '0px 0px -10% 0px', threshold: 0.1 });
+
+ document.querySelectorAll('.animate-in').forEach(el => observer.observe(el));
+
+ // Progress bar
+ function updateProgressBar() {
+ const scrollTop = window.scrollY;
+ const scrollHeight = document.documentElement.scrollHeight - window.innerHeight;
+ const progress = (scrollTop / scrollHeight) * 100;
+ document.getElementById('progress-bar').style.width = progress + '%';
+ }
+
+ window.addEventListener('scroll', () => {
+ requestAnimationFrame(updateProgressBar);
+ }, { passive: true });
+
+ // Navigation dots
+ document.querySelectorAll('.nav-dot').forEach(dot => {
+ dot.addEventListener('click', () => {
+ const target = document.getElementById(dot.dataset.target);
+ if (target) target.scrollIntoView({ behavior: 'smooth' });
+ });
+ });
+
+ // Chat animation
+ let chatIndex = 0;
+ const chatMessages = document.querySelectorAll('#chat-messages .chat-message');
+ const actors = {
+ 'manager': { initials: 'M', color: 'var(--color-actor-1)' },
+ 'holder': { initials: 'H', color: 'var(--color-actor-2)' }
+ };
+
+ window.playChatNext = function() {
+ if (chatIndex >= chatMessages.length) return;
+ const msg = chatMessages[chatIndex];
+ const sender = msg.dataset.sender;
+
+ const typing = document.getElementById('chat-typing');
+ const avatar = document.getElementById('typing-avatar');
+ avatar.textContent = actors[sender].initials;
+ avatar.style.background = actors[sender].color;
+ typing.style.display = 'flex';
+
+ setTimeout(() => {
+ typing.style.display = 'none';
+ msg.style.display = 'flex';
+ msg.style.animation = 'fadeSlideUp 0.3s var(--ease-out)';
+ chatIndex++;
+ }, 800);
+ };
+
+ window.playChatAll = function() {
+ const interval = setInterval(() => {
+ if (chatIndex >= chatMessages.length) {
+ clearInterval(interval);
+ return;
+ }
+ playChatNext();
+ }, 1500);
+ };
+
+ window.resetChat = function() {
+ chatIndex = 0;
+ chatMessages.forEach(msg => msg.style.display = 'none');
+ document.getElementById('chat-typing').style.display = 'none';
+ };
+
+ // Quiz
+ window.selectOption = function(btn) {
+ const block = btn.closest('.quiz-question-block');
+ block.querySelectorAll('.quiz-option').forEach(o => o.classList.remove('selected'));
+ btn.classList.add('selected');
+ };
+
+ window.checkQuiz = function() {
+ document.querySelectorAll('.quiz-question-block').forEach(q => {
+ const selected = q.querySelector('.quiz-option.selected');
+ const feedback = q.querySelector('.quiz-feedback');
+ const correctValue = q.dataset.correct;
+
+ if (!selected) {
+ feedback.textContent = 'Pick an answer first!';
+ feedback.className = 'quiz-feedback show';
+ return;
+ }
+
+ if (selected.dataset.value === correctValue) {
+ selected.classList.add('correct');
+ feedback.innerHTML = '<strong>Exactly right!</strong> This matches what we learned in the course.';
+ feedback.className = 'quiz-feedback show success';
+ } else {
+ selected.classList.add('incorrect');
+ const correct = q.querySelector(`[data-value="${correctValue}"]`);
+ if (correct) correct.classList.add('correct');
+
+ const explanations = {
+ 'q1': 'Parallelism is about fetching from multiple sources simultaneously, not memory optimization.',
+ 'q2': 'Hash mismatches trigger ErrShardIntegrity because we can\'t trust the data.',
+ 'q3': 'Chunking allows streaming and handles files larger than available memory.',
+ 'q4': 'The temp file pattern prevents leaving corrupted data in final locations.'
+ };
+
+ feedback.innerHTML = `<strong>Not quite.</strong> ${explanations[q.dataset.question] || ''}`;
+ feedback.className = 'quiz-feedback show error';
+ }
+
+ q.querySelectorAll('.quiz-option').forEach(o => o.disabled = true);
+ });
+ };
+
+ // Tooltips
+ let activeTooltip = null;
+
+ function positionTooltip(term, tip) {
+ const rect = term.getBoundingClientRect();
+ const tipWidth = 320;
+ let left = rect.left + rect.width / 2 - tipWidth / 2;
+ left = Math.max(8, Math.min(left, window.innerWidth - tipWidth - 8));
+
+ document.body.appendChild(tip);
+ const tipHeight = tip.offsetHeight || 80;
+
+ tip.style.left = left + 'px';
+ if (rect.top - tipHeight - 8 < 0) {
+ tip.style.top = (rect.bottom + 8) + 'px';
+ tip.classList.add('flip');
+ } else {
+ tip.style.top = (rect.top - tipHeight - 8) + 'px';
+ tip.classList.remove('flip');
+ }
+ }
+
+ document.querySelectorAll('.term').forEach(term => {
+ const tip = document.createElement('span');
+ tip.className = 'term-tooltip';
+ tip.textContent = term.dataset.definition;
+
+ term.addEventListener('mouseenter', () => {
+ if (activeTooltip && activeTooltip !== tip) {
+ activeTooltip.classList.remove('visible');
+ activeTooltip.remove();
+ }
+ positionTooltip(term, tip);
+ requestAnimationFrame(() => tip.classList.add('visible'));
+ activeTooltip = tip;
+ });
+
+ term.addEventListener('mouseleave', () => {
+ tip.classList.remove('visible');
+ setTimeout(() => { if (!tip.classList.contains('visible')) tip.remove(); }, 150);
+ activeTooltip = null;
+ });
+
+ term.addEventListener('click', (e) => {
+ e.stopPropagation();
+ if (activeTooltip && activeTooltip !== tip) {
+ activeTooltip.classList.remove('visible');
+ activeTooltip.remove();
+ }
+ if (tip.classList.contains('visible')) {
+ tip.classList.remove('visible');
+ tip.remove();
+ activeTooltip = null;
+ } else {
+ positionTooltip(term, tip);
+ requestAnimationFrame(() => tip.classList.add('visible'));
+ activeTooltip = tip;
+ }
+ });
+ });
+
+ document.addEventListener('click', () => {
+ if (activeTooltip) {
+ activeTooltip.classList.remove('visible');
+ activeTooltip.remove();
+ activeTooltip = null;
+ }
+ });
+
+ // Keyboard navigation
+ document.addEventListener('keydown', (e) => {
+ if (['INPUT', 'TEXTAREA'].includes(e.target.tagName)) return;
+ if (e.key === 'ArrowDown' || e.key === 'ArrowRight') {
+ const current = document.querySelector('.nav-dot.current');
+ const dots = Array.from(document.querySelectorAll('.nav-dot'));
+ const idx = dots.indexOf(current);
+ if (idx < dots.length - 1) {
+ dots[idx + 1].click();
+ e.preventDefault();
+ }
+ }
+ if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') {
+ const current = document.querySelector('.nav-dot.current');
+ const dots = Array.from(document.querySelectorAll('.nav-dot'));
+ const idx = dots.indexOf(current);
+ if (idx > 0) {
+ dots[idx - 1].click();
+ e.preventDefault();
+ }
+ }
+ });
+
+ // Update nav dots on scroll
+ window.addEventListener('scroll', () => {
+ const modules = document.querySelectorAll('.module');
+ let current = 0;
+ modules.forEach((mod, i) => {
+ const rect = mod.getBoundingClientRect();
+ if (rect.top <= window.innerHeight / 2) current = i;
+ });
+ document.querySelectorAll('.nav-dot').forEach((dot, i) => {
+ dot.classList.toggle('current', i === current);
+ });
+ }, { passive: true });
+ </script>
+</body>
+</html>

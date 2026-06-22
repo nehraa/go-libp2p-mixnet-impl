@@ -1,0 +1,959 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+ <meta charset="UTF-8">
+ <meta name="viewport" content="width=device-width, initial-scale=1.0">
+ <title>Hub + Upload + Download: How They Work Together</title>
+ <link rel="preconnect" href="https://fonts.googleapis.com">
+ <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+ <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,700;12..96,800&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400;1,9..40,500&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+ <style>
+ :root {
+ --color-bg: #FAF7F2;
+ --color-bg-warm: #F5F0E8;
+ --color-bg-code: #1E1E2E;
+ --color-text: #2C2A28;
+ --color-text-secondary: #6B6560;
+ --color-text-muted: #9E9790;
+ --color-border: #E5DFD6;
+ --color-border-light: #EEEBE5;
+ --color-surface: #FFFFFF;
+ --color-surface-warm: #FDF9F3;
+ --color-accent: #7B6DAA;
+ --color-accent-hover: #5D5380;
+ --color-accent-light: #E8E6F0;
+ --color-accent-muted: #9B8FC4;
+ --color-success: #2D8B55;
+ --color-success-light: #E8F5EE;
+ --color-error: #C93B3B;
+ --color-error-light: #FDE8E8;
+ --color-info: #2A7B9B;
+ --color-info-light: #E4F2F7;
+ --color-actor-1: #7B6DAA;
+ --color-actor-2: #D94F30;
+ --color-actor-3: #2A7B9B;
+ --color-actor-4: #D4A843;
+ --color-actor-5: #2D8B55;
+ --font-display: 'Bricolage Grotesque', Georgia, serif;
+ --font-body: 'DM Sans', -apple-system, sans-serif;
+ --font-mono: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+ --text-xs: 0.75rem; --text-sm: 0.875rem; --text-base: 1rem;
+ --text-lg: 1.125rem; --text-xl: 1.25rem; --text-2xl: 1.5rem;
+ --text-3xl: 1.875rem; --text-4xl: 2.25rem; --text-5xl: 3rem; --text-6xl: 3.75rem;
+ --leading-tight: 1.15; --leading-snug: 1.3; --leading-normal: 1.6;
+ --space-1: 0.25rem; --space-2: 0.5rem; --space-3: 0.75rem; --space-4: 1rem;
+ --space-5: 1.25rem; --space-6: 1.5rem; --space-8: 2rem; --space-10: 2.5rem;
+ --space-12: 3rem; --space-16: 4rem; --space-20: 5rem; --space-24: 6rem;
+ --content-width: 800px; --content-width-wide: 1000px; --nav-height: 50px;
+ --radius-sm: 8px; --radius-md: 12px; --radius-lg: 16px; --radius-full: 9999px;
+ --shadow-sm: 0 1px 2px rgba(44, 42, 40, 0.05);
+ --shadow-md: 0 4px 12px rgba(44, 42, 40, 0.08);
+ --shadow-lg: 0 8px 24px rgba(44, 42, 40, 0.1);
+ --shadow-xl: 0 16px 48px rgba(44, 42, 40, 0.12);
+ --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+ --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+ --duration-fast: 150ms; --duration-normal: 300ms; --duration-slow: 500ms;
+ --stagger-delay: 120ms;
+ }
+ * { box-sizing: border-box; margin: 0; padding: 0; }
+ html { scroll-snap-type: y proximity; scroll-behavior: smooth; }
+ body { font-family: var(--font-body); background: var(--color-bg); color: var(--color-text); line-height: var(--leading-normal); overflow-x: hidden; }
+ .nav { position: fixed; top: 0; left: 0; right: 0; height: var(--nav-height); background: rgba(250, 247, 242, 0.95); backdrop-filter: blur(8px); z-index: 1000; border-bottom: 1px solid var(--color-border-light); }
+ .progress-bar { position: absolute; top: 0; left: 0; height: 3px; background: var(--color-accent); width: 0%; transition: width 0.1s; }
+ .nav-inner { max-width: var(--content-width); margin: 0 auto; height: 100%; display: flex; align-items: center; justify-content: space-between; padding: 0 var(--space-6); }
+ .nav-title { font-family: var(--font-display); font-weight: 700; font-size: var(--text-lg); }
+ .nav-dots { display: flex; gap: var(--space-2); }
+ .nav-dot { width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--color-text-muted); background: transparent; cursor: pointer; transition: all var(--duration-fast); }
+ .nav-dot.current { border-color: var(--color-accent); background: var(--color-accent); box-shadow: 0 0 8px rgba(123, 109, 170, 0.4); }
+ .module { min-height: 100dvh; min-height: 100vh; scroll-snap-align: start; padding: var(--space-16) var(--space-6); padding-top: calc(var(--nav-height) + var(--space-12)); }
+ .module:nth-child(odd) { background: var(--color-bg-warm); }
+ .module:nth-child(even) { background: var(--color-bg); }
+ .module-content { max-width: var(--content-width); margin: 0 auto; }
+ .module-header { text-align: center; margin-bottom: var(--space-12); }
+ .module-number { font-family: var(--font-display); font-size: var(--text-6xl); font-weight: 800; color: var(--color-accent); opacity: 0.15; line-height: 1; }
+ .module-title { font-family: var(--font-display); font-size: var(--text-4xl); font-weight: 700; margin-top: calc(var(--space-4) * -1); margin-bottom: var(--space-4); }
+ .module-subtitle { font-size: var(--text-lg); color: var(--color-text-secondary); max-width: 600px; margin: 0 auto; }
+ .screen { margin-bottom: var(--space-12); }
+ .screen-heading { font-family: var(--font-display); font-size: var(--text-2xl); font-weight: 600; margin-bottom: var(--space-4); }
+ .animate-in { opacity: 0; transform: translateY(20px); transition: opacity var(--duration-slow) var(--ease-out), transform var(--duration-slow) var(--ease-out); }
+ .animate-in.visible { opacity: 1; transform: translateY(0); }
+ .translation-block { display: grid; grid-template-columns: 1fr 1fr; gap: 0; border-radius: var(--radius-md); overflow: hidden; box-shadow: var(--shadow-md); margin: var(--space-8) 0; }
+ .translation-code { background: var(--color-bg-code); color: #CDD6F4; padding: var(--space-6); font-family: var(--font-mono); font-size: var(--text-sm); line-height: 1.7; position: relative; overflow-x: hidden; }
+ .translation-code pre, .translation-code code { white-space: pre-wrap; word-break: break-word; overflow-x: hidden; }
+ .translation-english { background: var(--color-surface-warm); padding: var(--space-6); font-size: var(--text-sm); line-height: 1.7; border-left: 3px solid var(--color-accent); }
+ .translation-label { position: absolute; top: var(--space-2); right: var(--space-3); font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.1em; opacity: 0.5; }
+ .translation-english .translation-label { position: static; color: var(--color-text-muted); margin-bottom: var(--space-3); display: block; }
+ .translation-lines p { margin-bottom: var(--space-3); padding: var(--space-2) var(--space-3); background: rgba(123, 109, 170, 0.08); border-radius: var(--radius-sm); }
+ .code-keyword { color: #CBA6F7; } .code-string { color: #A6E3A1; } .code-function { color: #89B4FA; } .code-comment { color: #6C7086; } .code-number { color: #FAB387; } .code-property { color: #F9E2AF; } .code-operator { color: #94E2D5; } .code-type { color: #F38BA8; }
+ .pattern-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: var(--space-4); margin: var(--space-8) 0; }
+ .pattern-card { background: var(--color-surface); border-radius: var(--radius-md); padding: var(--space-6); box-shadow: var(--shadow-sm); transition: transform var(--duration-normal) var(--ease-out), box-shadow var(--duration-normal); border-top: 3px solid var(--card-color, var(--color-accent)); }
+ .pattern-card:hover { transform: translateY(-4px); box-shadow: var(--shadow-md); }
+ .pattern-icon { width: 48px; height: 48px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 1.25rem; margin-bottom: var(--space-4); background: var(--card-color, var(--color-accent)); color: white; }
+ .pattern-title { font-family: var(--font-display); font-weight: 600; font-size: var(--text-lg); margin-bottom: var(--space-2); }
+ .pattern-desc { font-size: var(--text-sm); color: var(--color-text-secondary); }
+ .icon-rows { display: flex; flex-direction: column; gap: var(--space-4); margin: var(--space-8) 0; }
+ .icon-row { display: flex; align-items: center; gap: var(--space-4); padding: var(--space-4); background: var(--color-surface); border-radius: var(--radius-md); box-shadow: var(--shadow-sm); }
+ .icon-row p { margin: 0; color: var(--color-text-secondary); font-size: var(--text-sm); }
+ .icon-circle { width: 48px; height: 48px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 1.25rem; flex-shrink: 0; color: white; }
+ .step-cards { display: flex; flex-direction: column; gap: var(--space-3); margin: var(--space-8) 0; }
+ .step-card { display: flex; align-items: flex-start; gap: var(--space-4); padding: var(--space-4) var(--space-5); background: var(--color-surface); border-radius: var(--radius-md); border-left: 3px solid var(--color-accent); box-shadow: var(--shadow-sm); }
+ .step-num { width: 32px; height: 32px; border-radius: 50%; background: var(--color-accent); color: white; font-weight: 700; display: flex; align-items: center; justify-content: center; font-family: var(--font-display); flex-shrink: 0; }
+ .step-body p { margin: var(--space-1) 0 0; color: var(--color-text-secondary); font-size: var(--text-sm); }
+ .callout { display: flex; gap: var(--space-4); padding: var(--space-5); border-radius: var(--radius-md); margin: var(--space-8) 0; }
+ .callout-accent { background: var(--color-accent-light); border-left: 4px solid var(--color-accent); }
+ .callout-info { background: var(--color-info-light); border-left: 4px solid var(--color-info); }
+ .callout-warning { background: var(--color-error-light); border-left: 4px solid var(--color-error); }
+ .callout-icon { font-size: 1.5rem; flex-shrink: 0; }
+ .callout-title { font-weight: 600; display: block; margin-bottom: var(--space-1); }
+ .chat-window { background: var(--color-surface); border-radius: var(--radius-lg); box-shadow: var(--shadow-lg); overflow: hidden; margin: var(--space-8) 0; max-width: 700px; margin-left: auto; margin-right: auto; }
+ .chat-messages { padding: var(--space-5); min-height: 350px; max-height: 450px; overflow-y: auto; }
+ .chat-message { display: none; align-items: flex-start; gap: var(--space-3); margin-bottom: var(--space-4); animation: fadeSlideUp 0.3s var(--ease-out); }
+ .chat-avatar { width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: var(--text-sm); color: white; flex-shrink: 0; }
+ .chat-bubble { background: rgba(0, 0, 0, 0.05); padding: var(--space-3) var(--space-4); border-radius: var(--radius-md); flex: 1; }
+ .chat-sender { font-weight: 600; font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.05em; display: block; margin-bottom: var(--space-1); }
+ .chat-bubble p { margin: 0; font-size: var(--text-sm); }
+ .chat-typing { display: none; align-items: center; gap: var(--space-3); padding: var(--space-3) var(--space-5); }
+ .chat-typing-dots { display: flex; gap: 4px; }
+ .typing-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--color-text-muted); animation: typingBounce 1.4s infinite; }
+ .typing-dot:nth-child(2) { animation-delay: 0.2s; }
+ .typing-dot:nth-child(3) { animation-delay: 0.4s; }
+ @keyframes typingBounce { 0%, 60%, 100% { transform: translateY(0); } 30% { transform: translateY(-6px); } }
+ @keyframes fadeSlideUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+ .chat-controls { display: flex; gap: var(--space-2); padding: var(--space-4); border-top: 1px solid var(--color-border); background: var(--color-bg-warm); }
+ .chat-controls button { padding: var(--space-2) var(--space-4); background: var(--color-accent); color: white; border: none; border-radius: var(--radius-sm); font-family: var(--font-body); font-size: var(--text-sm); cursor: pointer; transition: background var(--duration-fast); }
+ .chat-controls button:hover { background: var(--color-accent-hover); }
+ .chat-controls button.secondary { background: var(--color-text-muted); }
+ .flow-animation { background: var(--color-surface); border-radius: var(--radius-lg); padding: var(--space-6); box-shadow: var(--shadow-md); margin: var(--space-8) 0; }
+ .flow-actors { display: flex; justify-content: space-around; align-items: center; margin-bottom: var(--space-8); position: relative; flex-wrap: wrap; gap: var(--space-4); }
+ .flow-actor { text-align: center; padding: var(--space-4); border-radius: var(--radius-md); background: var(--color-bg-warm); transition: all var(--duration-normal) var(--ease-out); min-width: 120px; }
+ .flow-actor.active { box-shadow: 0 0 0 3px var(--color-accent), 0 0 20px rgba(123, 109, 170, 0.2); transform: scale(1.05); }
+ .flow-actor-icon { width: 60px; height: 60px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 1.5rem; font-weight: 700; color: white; margin: 0 auto var(--space-2); }
+ .flow-connection { position: absolute; height: 3px; background: var(--color-border); top: 50%; left: 10%; right: 10%; z-index: -1; }
+ .flow-step-label { text-align: center; font-size: var(--text-lg); color: var(--color-text-secondary); margin-bottom: var(--space-4); min-height: 3rem; }
+ .flow-controls { display: flex; justify-content: center; gap: var(--space-2); }
+ .flow-controls button { padding: var(--space-2) var(--space-4); background: var(--color-accent); color: white; border: none; border-radius: var(--radius-sm); cursor: pointer; }
+ .flow-controls button:hover { background: var(--color-accent-hover); }
+ .quiz-container { background: var(--color-surface); border-radius: var(--radius-lg); padding: var(--space-6); box-shadow: var(--shadow-md); margin: var(--space-8) 0; }
+ .quiz-question { font-family: var(--font-display); font-size: var(--text-lg); font-weight: 600; margin-bottom: var(--space-4); }
+ .quiz-options { display: flex; flex-direction: column; gap: var(--space-3); }
+ .quiz-option { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-3) var(--space-4); border: 2px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface); cursor: pointer; width: 100%; text-align: left; font-family: var(--font-body); font-size: var(--text-base); transition: border-color var(--duration-fast), background var(--duration-fast); }
+ .quiz-option:hover { border-color: var(--color-accent-muted); }
+ .quiz-option.selected { border-color: var(--color-accent); background: var(--color-accent-light); }
+ .quiz-option.correct { border-color: var(--color-success); background: var(--color-success-light); }
+ .quiz-option.incorrect { border-color: var(--color-error); background: var(--color-error-light); }
+ .quiz-option-radio { width: 18px; height: 18px; border-radius: 50%; border: 2px solid var(--color-border); flex-shrink: 0; transition: all var(--duration-fast); }
+ .quiz-option.selected .quiz-option-radio { border-color: var(--color-accent); background: var(--color-accent); box-shadow: inset 0 0 0 3px white; }
+ .quiz-feedback { max-height: 0; overflow: hidden; opacity: 0; transition: max-height var(--duration-normal), opacity var(--duration-normal); }
+ .quiz-feedback.show { max-height: 200px; opacity: 1; padding: var(--space-3); margin-top: var(--space-2); border-radius: var(--radius-sm); }
+ .quiz-feedback.success { background: var(--color-success-light); color: var(--color-success); }
+ .quiz-feedback.error { background: var(--color-error-light); color: var(--color-error); }
+ .quiz-check-btn { margin-top: var(--space-4); padding: var(--space-3) var(--space-6); background: var(--color-accent); color: white; border: none; border-radius: var(--radius-sm); font-family: var(--font-body); font-weight: 600; cursor: pointer; }
+ .file-tree { font-family: var(--font-mono); font-size: var(--text-sm); background: var(--color-surface); padding: var(--space-5); border-radius: var(--radius-md); margin: var(--space-8) 0; }
+ .ft-folder, .ft-file { padding: var(--space-2) var(--space-3); border-left: 2px solid var(--color-border-light); margin-left: var(--space-4); }
+ .ft-folder > .ft-name { color: var(--color-accent); font-weight: 600; }
+ .ft-folder > .ft-name::before { content: '📁 '; }
+ .ft-file > .ft-name::before { content: '📄 '; }
+ .ft-desc { color: var(--color-text-secondary); font-family: var(--font-body); margin-left: var(--space-2); font-size: var(--text-xs); }
+ .term { border-bottom: 1.5px dashed var(--color-accent-muted); cursor: pointer; position: relative; }
+ .term:hover, .term.active { border-bottom-color: var(--color-accent); color: var(--color-accent); }
+ .term-tooltip { position: fixed; background: var(--color-bg-code); color: #CDD6F4; padding: var(--space-3) var(--space-4); border-radius: var(--radius-sm); font-size: var(--text-sm); font-family: var(--font-body); line-height: var(--leading-normal); width: max(280px, min(320px, 80vw)); box-shadow: var(--shadow-lg); pointer-events: none; opacity: 0; transition: opacity var(--duration-fast); z-index: 10000; }
+ .term-tooltip::after { content: ''; position: absolute; top: 100%; left: 50%; transform: translateX(-50%); border: 6px solid transparent; border-top-color: var(--color-bg-code); }
+ .term-tooltip.visible { opacity: 1; }
+ @media (max-width: 768px) {
+ :root { --text-4xl: 1.875rem; --text-5xl: 2.25rem; --text-6xl: 3rem; }
+ .translation-block { grid-template-columns: 1fr; }
+ .translation-english { border-left: none; border-top: 3px solid var(--color-accent); }
+ .pattern-cards { grid-template-columns: 1fr; }
+ .flow-actors { flex-direction: column; gap: var(--space-4); }
+ .flow-connection { display: none; }
+ }
+ @media (max-width: 480px) {
+ :root { --text-4xl: 1.5rem; --text-5xl: 1.875rem; --text-6xl: 2.25rem; }
+ .module { padding: var(--space-8) var(--space-4); }
+ }
+ ::-webkit-scrollbar { width: 6px; }
+ ::-webkit-scrollbar-track { background: transparent; }
+ ::-webkit-scrollbar-thumb { background: var(--color-border); border-radius: var(--radius-full); }
+ </style>
+</head>
+<body>
+ <nav class="nav">
+ <div class="progress-bar" id="progress-bar"></div>
+ <div class="nav-inner">
+ <span class="nav-title">P2P System Integration</span>
+ <div class="nav-dots">
+ <button class="nav-dot current" data-target="module-1"></button>
+ <button class="nav-dot" data-target="module-2"></button>
+ <button class="nav-dot" data-target="module-3"></button>
+ <button class="nav-dot" data-target="module-4"></button>
+ <button class="nav-dot" data-target="module-5"></button>
+ <button class="nav-dot" data-target="module-6"></button>
+ </div>
+ </div>
+ </nav>
+
+ <section class="module" id="module-1">
+ <div class="module-content">
+ <header class="module-header animate-in">
+ <span class="module-number">01</span>
+ <h1 class="module-title">The Three Pillars</h1>
+ <p class="module-subtitle">Hub, Upload, and Download work together to create a complete peer-to-peer file sharing system</p>
+ </header>
+
+ <div class="module-body">
+ <section class="screen animate-in">
+ <h2 class="screen-heading">The Architecture at a Glance</h2>
+ <p>Imagine you want to share a large file with friends, but the file is too big to send in one piece. You also want multiple friends to help distribute it. This system solves that through three specialized packages:</p>
+ 
+ <div class="icon-rows" style="margin-top: var(--space-8);">
+ <div class="icon-row">
+ <div class="icon-circle" style="background: var(--color-actor-1);">🔌</div>
+ <div>
+ <strong>Hub (p2p/hub)</strong>
+ <p>The <span class="term" data-definition="The Hub is like a network switchboard — it manages connections to individual peers, keeps streams alive, and routes messages between components.">Hub</span> manages peer connections. It's the foundation everything else builds on.</p>
+ </div>
+ </div>
+ <div class="icon-row">
+ <div class="icon-circle" style="background: var(--color-actor-2);">📤</div>
+ <div>
+ <strong>Upload (p2p/upload)</strong>
+ <p>The <span class="term" data-definition="Upload handles sending files OUT — breaking them into shards and fanning them out to multiple peers.">Upload</span> package sends files. It shards data and distributes to peers using the Hub.</p>
+ </div>
+ </div>
+ <div class="icon-row">
+ <div class="icon-circle" style="background: var(--color-actor-3);">📥</div>
+ <div>
+ <strong>Download (p2p/download)</strong>
+ <p>The <span class="term" data-definition="Download handles pulling files IN — fetching shards from multiple peers and reconstructing the original file.">Download</span> package retrieves files. It fetches shards in parallel and reconstructs them.</p>
+ </div>
+ </div>
+ </div>
+ </section>
+
+ <section class="screen animate-in">
+ <h2 class="screen-heading">How They Connect</h2>
+ <p>The relationship is <strong>hierarchical:</strong> Hub provides the low-level connection management, Upload and Download build higher-level file transfer on top.</p>
+ 
+ <div class="flow-animation" style="margin-top: var(--space-8);">
+ <div class="flow-actors" id="layer-actors">
+ <div class="flow-actor" id="layer-upload" style="background: var(--color-accent-light);">
+ <div class="flow-actor-icon" style="background: var(--color-actor-2);">📤</div>
+ <span>Upload</span>
+ <small style="display: block; color: var(--color-text-muted); font-size: var(--text-xs);">Uses Hub</small>
+ </div>
+ <div class="flow-actor" id="layer-download" style="background: var(--color-accent-light);">
+ <div class="flow-actor-icon" style="background: var(--color-actor-3);">📥</div>
+ <span>Download</span>
+ <small style="display: block; color: var(--color-text-muted); font-size: var(--text-xs);">Uses Hub</small>
+ </div>
+ <div class="flow-actor" id="layer-hub" style="background: var(--color-accent-light);">
+ <div class="flow-actor-icon" style="background: var(--color-actor-1);">🔌</div>
+ <span>Hub</span>
+ <small style="display: block; color: var(--color-text-muted); font-size: var(--text-xs);">Foundation</small>
+ </div>
+ <div class="flow-actor" id="layer-libp2p" style="background: var(--color-accent-light);">
+ <div class="flow-actor-icon" style="background: var(--color-actor-4);">🌐</div>
+ <span>libp2p</span>
+ <small style="display: block; color: var(--color-text-muted); font-size: var(--text-xs);">Network Layer</small>
+ </div>
+ </div>
+ <p style="text-align: center; color: var(--color-text-secondary);">
+ Upload and Download both sit <strong>on top of</strong> Hub, which sits on libp2p
+ </p>
+ </div>
+ 
+ <div class="callout callout-accent">
+ <div class="callout-icon">💡</div>
+ <div class="callout-content">
+ <strong class="callout-title">The Pattern: Separation of Concerns</strong>
+ <p>Each package has one job and does it well. Hub doesn't know about files — it only manages streams. Upload doesn't know about downloads. This modularity makes the system maintainable and testable.</p>
+ </div>
+ </div>
+ </section>
+ </div>
+ </div>
+ </section>
+
+ <section class="module" id="module-2">
+ <div class="module-content">
+ <header class="module-header animate-in">
+ <span class="module-number">02</span>
+ <h1 class="module-title">The Hub: Foundation Layer</h1>
+ <p class="module-subtitle">Managing peer connections, streams, and message routing</p>
+ </header>
+
+ <div class="module-body">
+ <section class="screen animate-in">
+ <h2 class="screen-heading">What the Hub Provides</h2>
+ <p>The Hub is a <span class="term" data-definition="A receptor is like a dedicated phone line to a specific peer — it manages the connection lifecycle and message exchange with that one peer.">receptor</span>-centric connection manager. Think of it as your phone system: it maintains a line open to each friend you might call.</p>
+ 
+ <div class="pattern-cards">
+ <div class="pattern-card" style="--card-color: var(--color-actor-1);">
+ <div class="pattern-icon">📞</div>
+ <h4 class="pattern-title">Peer Bindings</h4>
+ <p class="pattern-desc">Creates and maintains Receptors — one per peer. Each Receptor tracks its connection state, latency, and statistics.</p>
+ </div>
+ <div class="pattern-card" style="--card-color: var(--color-actor-1);">
+ <div class="pattern-icon">🔄</div>
+ <h4 class="pattern-title">Stream Lifecycle</h4>
+ <p class="pattern-desc">Opens, monitors, and resets streams automatically. Handles reconnections when connections drop.</p>
+ </div>
+ <div class="pattern-card" style="--card-color: var(--color-actor-1);">
+ <div class="pattern-icon">📡</div>
+ <h4 class="pattern-title">Event Pipeline</h4>
+ <p class="pattern-desc">Delivers data-received and stream-closed events to Upload/Download managers through Go channels.</p>
+ </div>
+ <div class="pattern-card" style="--card-color: var(--color-actor-1);">
+ <div class="pattern-icon">📊</div>
+ <h4 class="pattern-title">Metrics</h4>
+ <p class="pattern-desc">Tracks bytes sent/received, connection attempts, failures, latency EWMA — all per-receptor.</p>
+ </div>
+ </div>
+ </section>
+
+ <section class="screen animate-in">
+ <h2 class="screen-heading">The Hub-Receptor Relationship</h2>
+ <p>When Upload or Download wants to talk to a peer, they ask the Hub for a Receptor:</p>
+ 
+ <div class="translation-block">
+ <div class="translation-code">
+ <span class="translation-label">CODE</span>
+ <pre><code><span class="code-line"><span class="code-comment">// Hub creates and tracks Receptors</span></span>
+<span class="code-line"><span class="code-keyword">type</span> Hub <span class="code-keyword">struct</span> {</span>
+<span class="code-line"> receptorsByID   <span class="code-keyword">map</span>[ReceptorID]*Receptor</span>
+<span class="code-line"> receptorsByPeer <span class="code-keyword">map</span>[peer.ID]*Receptor</span>
+<span class="code-line">}</span>
+<span class="code-line"></span>
+<span class="code-line"><span class="code-comment">// Upload asks Hub for a Receptor</span></span>
+<span class="code-line">receptor, err := hub.<span class="code-function">CreateReceptor</span>(ctx, peerInfo)</span>
+<span class="code-line"></span>
+<span class="code-line"><span class="code-comment">// Later, send data through it</span></span>
+<span class="code-line">receptor.<span class="code-function">Send</span>(ctx, payload)</span></code></pre>
+ </div>
+ <div class="translation-english">
+ <span class="translation-label">PLAIN ENGLISH</span>
+ <div class="translation-lines">
+ <p>Hub keeps two lookup tables — one by ID, one by peer ID...</p>
+ <p>These let the Hub quickly find any Receptor it has...</p>
+ <p>They're mappings (dictionaries) from IDs to Receptor objects...</p>
+ <p>Upload code asks Hub to create a binding to a specific peer...</p>
+ <p>Receptor is like getting a dedicated phone line to that peer...</p>
+ <p></p>
+ <p>Once you have the Receptor, you can send bytes through it...</p>
+ <p>The Receptor handles the actual stream management...</p>
+ </div>
+ </div>
+ </div>
+ </section>
+ </div>
+ </div>
+ </section>
+
+ <section class="module" id="module-3">
+ <div class="module-content">
+ <header class="module-header animate-in">
+ <span class="module-number">03</span>
+ <h1 class="module-title">Upload: Sending Files Out</h1>
+ <p class="module-subtitle">The upload package distributes shards to multiple peers using the Hub</p>
+ </header>
+
+ <div class="module-body">
+ <section class="screen animate-in">
+ <h2 class="screen-heading">Two Sides of Upload</h2>
+ <p>Upload has two distinct modes: <strong>sending</strong> (Manager) and <strong>receiving</strong> (Receiver). Both use the Hub — but differently:</p>
+ 
+ <div class="step-cards">
+ <div class="step-card">
+ <div class="step-num" style="background: var(--color-actor-2);">1</div>
+ <div class="step-body">
+ <strong>Manager</strong> — uses Hub for sending
+ <p>The Upload Manager creates Hub <span class="term" data-definition="Receptors are the Hub's abstraction for a managed connection to a single peer — they handle stream lifecycle, reconnection, and message routing.">Receptors</span> to each destination peer. It sends shards through these receptors and waits for acknowledgments (acks).</p>
+ </div>
+ </div>
+ <div class="step-card">
+ <div class="step-num" style="background: var(--color-actor-5);">2</div>
+ <div class="step-body">
+ <strong>Receiver</strong> — uses Hub for receiving
+ <p>The Upload Receiver registers a stream handler directly with <span class="term" data-definition="libp2p is a networking library for building peer-to-peer applications — it handles the low-level peer discovery, connection, and messaging.">libp2p</span>. When peers connect to upload, the Hub routes those incoming streams to the Receiver.</p>
+ </div>
+ </div>
+ </div>
+ </section>
+ 
+ <section class="screen animate-in">
+ <h2 class="screen-heading">Manager Uses Hub.Receptor</h2>
+ <p>The Upload Manager creates a Hub instance and asks it for Receptors to each holder peer:</p>
+ 
+ <div class="translation-block">
+ <div class="translation-code">
+ <span class="translation-label">CODE</span>
+ <pre><code><span class="code-line"><span class="code-keyword">func</span> <span class="code-function">NewManager</span>(h host.Host, r routing.Routing, cfg Config) (*Manager, <span class="code-keyword">error</span>) {</span>
+<span class="code-line"> <span class="code-comment">// ... config setup ...</span></span>
+<span class="code-line"> </span>
+<span class="code-line"> <span class="code-comment">// Create Hub with our protocol ID</span></span>
+<span class="code-line"> hubCfg := normalized.HubConfig</span>
+<span class="code-line"> hubCfg.ProtocolID = normalized.ProtocolID</span>
+<span class="code-line"> hb, err := hub.<span class="code-function">New</span>(h, hubCfg)</span>
+<span class="code-line"> </span>
+<span class="code-line"> manager := &Manager{</span>
+<span class="code-line"> hub: hb, <span class="code-comment">// Store Hub reference</span></span>
+<span class="code-line"> }</span>
+<span class="code-line"> </span>
+<span class="code-line"> <span class="code-comment">// Later: create receptor for each holder</span></span>
+<span class="code-line"> receptor, err := manager.hub.<span class="code-function">CreateReceptor</span>(ctx, holder)</span></code></pre>
+ </div>
+ <div class="translation-english">
+ <span class="translation-label">PLAIN ENGLISH</span>
+ <div class="translation-lines">
+ <p>Constructor for Upload Manager — takes a libp2p host...</p>
+ <p>Skip over the configuration normalization details...</p>
+ <p></p>
+ <p>Prepare Hub configuration, using same protocol ID...</p>
+ <p>This ensures Upload and Download speak the same "language"...</p>
+ <p>Create the Hub instance, passing in the libp2p host...</p>
+ <p></p>
+ <p>Create the Manager struct instance...</p>
+ <p>Store the Hub reference so we can use it later...</p>
+ <p></p>
+ <p>When we're ready to upload to a specific peer...</p>
+ <p>Ask Hub to create/maintain a Receptor to that holder...</p>
+ </div>
+ </div>
+ </div>
+ </section>
+ </div>
+ </div>
+ </section>
+
+ <section class="module" id="module-4">
+ <div class="module-content">
+ <header class="module-header animate-in">
+ <span class="module-number">04</span>
+ <h1 class="module-title">Download: Pulling Files In</h1>
+ <p class="module-subtitle">The download package fetches shards and uses the Hub for peer communication</p>
+ </header>
+
+ <div class="module-body">
+ <section class="screen animate-in">
+ <h2 class="screen-heading">Download Architecture</h2>
+ <p>Download mirrors Upload's pattern but in reverse: the Manager acts as the <strong>requester</strong> (using Hub), and HolderService acts as the <strong>responder</strong> (receiving requests via Hub).</p>
+ 
+ <div class="icon-rows">
+ <div class="icon-row">
+ <div class="icon-circle" style="background: var(--color-actor-3);">📥</div>
+ <div>
+ <strong>Download Manager</strong>
+ <p>Uses Hub Receptors to connect to holder peers and request shards. It's a client using the Hub's requester-side API.</p>
+ </div>
+ </div>
+ <div class="icon-row">
+ <div class="icon-circle" style="background: var(--color-actor-2);">📤</div>
+ <div>
+ <strong>HolderService</strong>
+ <p>Uses Hub to accept incoming requests. It binds allowed requesters to Receptors and serves shard data through them.</p>
+ </div>
+ </div>
+ </div>
+ </section>
+ 
+ <section class="screen animate-in">
+ <h2 class="screen-heading">HolderService Allows Requesters</h2>
+ <p>Before a download can happen, the holder must explicitly allow the requester:</p>
+ 
+ <div class="translation-block">
+ <div class="translation-code">
+ <span class="translation-label">CODE</span>
+ <pre><code><span class="code-line"><span class="code-keyword">func</span> (s *HolderService) <span class="code-function">AllowRequester</span>(</span>
+<span class="code-line"> ctx context.Context,</span>
+<span class="code-line"> requester peer.AddrInfo,</span>
+<span class="code-line">) <span class="code-keyword">error</span> {</span>
+<span class="code-line"> <span class="code-comment">// Create receptor through Hub</span></span>
+<span class="code-line"> receptor, err := s.hub.<span class="code-function">CreateReceptor</span>(ctx, requester)</span>
+<span class="code-line"> </span>
+<span class="code-line"> <span class="code-comment">// Store in allowed map</span></span>
+<span class="code-line"> s.mu.<span class="code-function">Lock</span>()</span>
+<span class="code-line"> s.allowed[requester.ID] = receptor</span>
+<span class="code-line"> s.mu.<span class="code-function">Unlock</span>()</span>
+<span class="code-line">}</span></code></pre>
+ </div>
+ <div class="translation-english">
+ <span class="translation-label">PLAIN ENGLISH</span>
+ <div class="translation-lines">
+ <p>Method to authorize a peer to download from us...</p>
+ <p>Receives context (deadline/cancellation) and peer info...</p>
+ <p>Peer info includes their ID and network addresses...</p>
+ <p>Returns error if something goes wrong...</p>
+ <p>Security: only explicitly allowed peers can download...</p>
+ <p>Ask Hub to create a Receptor to this requester...</p>
+ <p></p>
+ <p>Lock the mutex for thread-safe access...</p>
+ <p>Store receptor in allowed peers map...</p>
+ <p>Unlock so other goroutines can access...</p>
+ </div>
+ </div>
+ </div>
+ 
+ <div class="callout callout-warning">
+ <div class="callout-icon">🛡️</div>
+ <div class="callout-content">
+ <strong class="callout-title">Security: Explicit Allowlisting</strong>
+ <p>HolderService doesn't let just anyone download. The requester must be explicitly allowed first. This prevents unauthorized data leakage.</p>
+ </div>
+ </div>
+ </section>
+ </div>
+ </div>
+ </section>
+
+ <section class="module" id="module-5">
+ <div class="module-content">
+ <header class="module-header animate-in">
+ <span class="module-number">05</span>
+ <h1 class="module-title">The Complete Flow</h1>
+ <p class="module-subtitle">Watch all three packages work together in a file transfer</p>
+ </header>
+
+ <div class="module-body">
+ <section class="screen animate-in">
+ <h2 class="screen-heading">A File's Journey: Upload → Download</h2>
+ <p>Follow a file as it travels from Uploader to Downloader, passing through all three packages:</p>
+ 
+ <div class="chat-window">
+ <div class="chat-messages" id="complete-flow-messages">
+ <div class="chat-message" data-msg="0" data-sender="upload" style="display:none">
+ <div class="chat-avatar" style="background: var(--color-actor-2);">U</div>
+ <div class="chat-bubble">
+ <span class="chat-sender" style="color: var(--color-actor-2);">Upload.Manager</span>
+ <p>"I have a file to send. Let me split it into shards and ask the Hub for a Receptor to Holder A."</p>
+ </div>
+ </div>
+ <div class="chat-message" data-msg="1" data-sender="hub" style="display:none">
+ <div class="chat-avatar" style="background: var(--color-actor-1);">H</div>
+ <div class="chat-bubble">
+ <span class="chat-sender" style="color: var(--color-actor-1);">Hub</span>
+ <p>"Creating Receptor to Holder A... Opening libp2p stream... Receptor ready. Upload Manager, you can now send."</p>
+ </div>
+ </div>
+ <div class="chat-message" data-msg="2" data-sender="upload" style="display:none">
+ <div class="chat-avatar" style="background: var(--color-actor-2);">U</div>
+ <div class="chat-bubble">
+ <span class="chat-sender" style="color: var(--color-actor-2);">Upload.Manager</span>
+ <p>"Sending shard #1 to Holder A through the Receptor... Waiting for ack."</p>
+ </div>
+ </div>
+ <div class="chat-message" data-msg="3" data-sender="upload-recv" style="display:none">
+ <div class="chat-avatar" style="background: var(--color-actor-5);">R</div>
+ <div class="chat-bubble">
+ <span class="chat-sender" style="color: var(--color-actor-5);">Upload.Receiver</span>
+ <p>"Received shard at Holder A! Saving to disk... Sending ack back to Uploader."</p>
+ </div>
+ </div>
+ <div class="chat-message" data-msg="4" data-sender="download" style="display:none">
+ <div class="chat-avatar" style="background: var(--color-actor-3);">D</div>
+ <div class="chat-bubble">
+ <span class="chat-sender" style="color: var(--color-actor-3);">Download.Manager</span>
+ <p>"I need that file. The manifest says Holder A has shard #1. Hub, give me a Receptor!"</p>
+ </div>
+ </div>
+ <div class="chat-message" data-msg="5" data-sender="hub" style="display:none">
+ <div class="chat-avatar" style="background: var(--color-actor-1);">H</div>
+ <div class="chat-bubble">
+ <span class="chat-sender" style="color: var(--color-actor-1);">Hub</span>
+ <p>"Opening stream to Holder A... Connection established. You can request the shard."</p>
+ </div>
+ </div>
+ <div class="chat-message" data-msg="6" data-sender="holder" style="display:none">
+ <div class="chat-avatar" style="background: var(--color-actor-2);">H</div>
+ <div class="chat-bubble">
+ <span class="chat-sender" style="color: var(--color-actor-2);">HolderService</span>
+ <p>"This requester is allowed. Opening the shard file... Streaming chunks through the Hub Receptor... Done!"</p>
+ </div>
+ </div>
+ <div class="chat-message" data-msg="7" data-sender="download" style="display:none">
+ <div class="chat-avatar" style="background: var(--color-actor-3);">D</div>
+ <div class="chat-bubble">
+ <span class="chat-sender" style="color: var(--color-actor-3);">Download.Manager</span>
+ <p>"Shard received and verified! Hash matches the manifest. All shards complete — reconstructing the file."</p>
+ </div>
+ </div>
+ </div>
+
+ <div class="chat-typing" id="flow-typing" style="display:none">
+ <div class="chat-avatar" id="flow-typing-avatar">?</div>
+ <div class="chat-typing-dots">
+ <span class="typing-dot"></span>
+ <span class="typing-dot"></span>
+ <span class="typing-dot"></span>
+ </div>
+ </div>
+
+ <div class="chat-controls">
+ <button onclick="playFlowNext()">Next Step</button>
+ <button onclick="playFlowAll()" class="secondary">Play All</button>
+ <button onclick="resetFlow()" class="secondary">Replay</button>
+ </div>
+ </div>
+ </section>
+ 
+ <section class="screen animate-in">
+ <h2 class="screen-heading">The Complete Architecture</h2>
+ <p>All three packages working in concert:</p>
+ 
+ <div class="file-tree" style="font-size: 0.8rem;">
+ <div class="ft-folder open">
+ <span class="ft-name">p2p/</span>
+ <span class="ft-desc">Root networking package</span>
+ <div class="ft-children">
+ <div class="ft-folder open">
+ <span class="ft-name">hub/</span>
+ <span class="ft-desc">Foundation: manages peer connections</span>
+ <div class="ft-children">
+ <div class="ft-file"><span class="ft-name">hub.go</span><span class="ft-desc">Hub struct, receptor management</span></div>
+ <div class="ft-file"><span class="ft-name">receptor.go</span><span class="ft-desc">Per-peer connection wrapper</span></div>
+ </div>
+ </div>
+ <div class="ft-folder open">
+ <span class="ft-name">upload/</span>
+ <span class="ft-desc">Uses hub for sending files</span>
+ <div class="ft-children">
+ <div class="ft-file"><span class="ft-name">manager.go</span><span class="ft-desc">Upload Manager (uses Hub.Receptor)</span></div>
+ <div class="ft-file"><span class="ft-name">receiver.go</span><span class="ft-desc">Receive uploads via Hub events</span></div>
+ </div>
+ </div>
+ <div class="ft-folder open">
+ <span class="ft-name">download/</span>
+ <span class="ft-desc">Uses hub for receiving files</span>
+ <div class="ft-children">
+ <div class="ft-file"><span class="ft-name">manager.go</span><span class="ft-desc">Download Manager (uses Hub.Receptor)</span></div>
+ <div class="ft-file"><span class="ft-name">holder.go</span><span class="ft-desc">HolderService (uses Hub)</span></div>
+ </div>
+ </div>
+ </div>
+ </div>
+ </div>
+ 
+ <div class="callout callout-info">
+ <div class="callout-icon">🔄</div>
+ <div class="callout-content">
+ <strong class="callout-title">The Pattern: Composition</strong>
+ <p>Notice how each layer doesn't duplicate functionality? Upload and Download don't implement their own peer connection logic — they compose with Hub. This is <span class="term" data-definition="Composition is building complex systems by combining simpler parts — like building with LEGO blocks rather than carving everything from one giant piece.">composition</span> over inheritance in action.</p>
+ </div>
+ </div>
+ </section>
+ </div>
+ </div>
+ </section>
+
+ <section class="module" id="module-6">
+ <div class="module-content">
+ <header class="module-header animate-in">
+ <span class="module-number">06</span>
+ <h1 class="module-title">Test Your Understanding</h1>
+ <p class="module-subtitle">Are you ready to build with this architecture?</p>
+ </header>
+
+ <div class="module-body">
+ <section class="screen animate-in">
+ <div class="quiz-container">
+ <div class="quiz-question-block" data-question="q1" data-correct="c">
+ <h3 class="quiz-question">1. Which package provides the Hub that both Upload and Download use?</h3>
+ <div class="quiz-options">
+ <button class="quiz-option" data-value="a" onclick="selectOption(this)">
+ <div class="quiz-option-radio"></div>
+ <span>upload package creates its own Hub, download creates its own</span>
+ </button>
+ <button class="quiz-option" data-value="b" onclick="selectOption(this)">
+ <div class="quiz-option-radio"></div>
+ <span>Hub is part of libp2p directly</span>
+ </button>
+ <button class="quiz-option" data-value="c" onclick="selectOption(this)">
+ <div class="quiz-option-radio"></div>
+ <span>p2p/hub package provides shared Hub both use</span>
+ </button>
+ </div>
+ <div class="quiz-feedback" id="q1-feedback"></div>
+ </div>
+
+ <div class="quiz-question-block" data-question="q2" data-correct="b" style="margin-top: var(--space-8);">
+ <h3 class="quiz-question">2. When Download.Manager wants to fetch a shard, what does it ask Hub for?</h3>
+ <div class="quiz-options">
+ <button class="quiz-option" data-value="a" onclick="selectOption(this)">
+ <div class="quiz-option-radio"></div>
+ <span>A new stream directly from libp2p</span>
+ </button>
+ <button class="quiz-option" data-value="b" onclick="selectOption(this)">
+ <div class="quiz-option-radio"></div>
+ <span>A Receptor to the holder peer</span>
+ </button>
+ <button class="quiz-option" data-value="c" onclick="selectOption(this)">
+ <div class="quiz-option-radio"></div>
+ <span>The raw file bytes</span>
+ </button>
+ </div>
+ <div class="quiz-feedback" id="q2-feedback"></div>
+ </div>
+
+ <div class="quiz-question-block" data-question="q3" data-correct="a" style="margin-top: var(--space-8);">
+ <h3 class="quiz-question">3. Upload uses the Hub differently in Manager vs Receiver. What's the key difference?</h3>
+ <div class="quiz-options">
+ <button class="quiz-option" data-value="a" onclick="selectOption(this)">
+ <div class="quiz-option-radio"></div>
+ <span>Manager creates Receptors to send; Receiver handles incoming hub events</span>
+ </button>
+ <button class="quiz-option" data-value="b" onclick="selectOption(this)">
+ <div class="quiz-option-radio"></div>
+ <span>They both work identically</span>
+ </button>
+ <button class="quiz-option" data-value="c" onclick="selectOption(this)">
+ <div class="quiz-option-radio"></div>
+ <span>Receiver doesn't use Hub at all</span>
+ </button>
+ </div>
+ <div class="quiz-feedback" id="q3-feedback"></div>
+ </div>
+
+ <div class="quiz-question-block" data-question="q4" data-correct="b" style="margin-top: var(--space-8);">
+ <h3 class="quiz-question">4. Why must HolderService explicitly allow requesters before serving shards?</h3>
+ <div class="quiz-options">
+ <button class="quiz-option" data-value="a" onclick="selectOption(this)">
+ <div class="quiz-option-radio"></div>
+ <span>To charge them money</span>
+ </button>
+ <button class="quiz-option" data-value="b" onclick="selectOption(this)">
+ <div class="quiz-option-radio"></div>
+ <span>Security: prevents unauthorized downloading</span>
+ </button>
+ <button class="quiz-option" data-value="c" onclick="selectOption(this)">
+ <div class="quiz-option-radio"></div>
+ <span>It's just bureaucracy</span>
+ </button>
+ </div>
+ <div class="quiz-feedback" id="q4-feedback"></div>
+ </div>
+
+ <button class="quiz-check-btn" onclick="checkQuiz()">Check Answers</button>
+ </div>
+ </section>
+
+ <section class="screen animate-in">
+ <h2 class="screen-heading">What You Now Understand</h2>
+ <div class="pattern-cards">
+ <div class="pattern-card" style="--card-color: var(--color-success);">
+ <div class="pattern-icon">✅</div>
+ <h4 class="pattern-title">Layered Architecture</h4>
+ <p class="pattern-desc">Hub → Upload/Download → User. Each layer builds on the one below.</p>
+ </div>
+ <div class="pattern-card" style="--card-color: var(--color-success);">
+ <div class="pattern-icon">✅</div>
+ <h4 class="pattern-title">Receptor Pattern</h4>
+ <p class="pattern-desc">Hub abstracts peer connections as Receptors — managed streams to individual peers.</p>
+ </div>
+ <div class="pattern-card" style="--card-color: var(--color-success);">
+ <div class="pattern-icon">✅</div>
+ <h4 class="pattern-title">Dual Modes</h4>
+ <p class="pattern-desc">Both Upload and Download have sender/receiver sides using Hub differently.</p>
+ </div>
+ </div>
+ 
+ <div class="callout callout-accent" style="margin-top: var(--space-8);">
+ <div class="callout-icon">🎓</div>
+ <div class="callout-content">
+ <strong class="callout-title">You're Ready</strong>
+ <p>You now understand how these three packages form a complete distributed file system. When using AI coding tools, you can: request Hub-based connection management, design multi-sided upload/download flows, implement security with explicit allowlisting, and compose systems using Hub as foundation.</p>
+ </div>
+ </div>
+ </section>
+ </div>
+ </div>
+ </section>
+
+ <script>
+ const observer = new IntersectionObserver((entries) => {
+ entries.forEach(entry => {
+ if (entry.isIntersecting) {
+ entry.target.classList.add('visible');
+ observer.unobserve(entry.target);
+ }
+ });
+ }, { rootMargin: '0px 0px -10% 0px', threshold: 0.1 });
+ document.querySelectorAll('.animate-in').forEach(el => observer.observe(el));
+
+ function updateProgressBar() {
+ const scrollTop = window.scrollY;
+ const scrollHeight = document.documentElement.scrollHeight - window.innerHeight;
+ const progress = (scrollTop / scrollHeight) * 100;
+ document.getElementById('progress-bar').style.width = progress + '%';
+ }
+ window.addEventListener('scroll', () => requestAnimationFrame(updateProgressBar), { passive: true });
+
+ document.querySelectorAll('.nav-dot').forEach(dot => {
+ dot.addEventListener('click', () => {
+ const target = document.getElementById(dot.dataset.target);
+ if (target) target.scrollIntoView({ behavior: 'smooth' });
+ });
+ });
+
+ // Flow chat animation
+ let flowIndex = 0;
+ const flowMessages = document.querySelectorAll('#complete-flow-messages .chat-message');
+ const flowActors = {
+ 'upload': { initials: 'U', color: 'var(--color-actor-2)' },
+ 'upload-recv': { initials: 'R', color: 'var(--color-actor-5)' },
+ 'hub': { initials: 'H', color: 'var(--color-actor-1)' },
+ 'download': { initials: 'D', color: 'var(--color-actor-3)' },
+ 'holder': { initials: 'H', color: 'var(--color-actor-2)' }
+ };
+
+ window.playFlowNext = function() {
+ if (flowIndex >= flowMessages.length) return;
+ const msg = flowMessages[flowIndex];
+ const sender = msg.dataset.sender;
+
+ const typing = document.getElementById('flow-typing');
+ const avatar = document.getElementById('flow-typing-avatar');
+ avatar.textContent = flowActors[sender].initials;
+ avatar.style.background = flowActors[sender].color;
+ typing.style.display = 'flex';
+
+ setTimeout(() => {
+ typing.style.display = 'none';
+ msg.style.display = 'flex';
+ msg.style.animation = 'fadeSlideUp 0.3s var(--ease-out)';
+ flowIndex++;
+ }, 800);
+ };
+
+ window.playFlowAll = function() {
+ const interval = setInterval(() => {
+ if (flowIndex >= flowMessages.length) { clearInterval(interval); return; }
+ playFlowNext();
+ }, 1500);
+ };
+
+ window.resetFlow = function() {
+ flowIndex = 0;
+ flowMessages.forEach(msg => msg.style.display = 'none');
+ document.getElementById('flow-typing').style.display = 'none';
+ };
+
+ // Quiz
+ window.selectOption = function(btn) {
+ const block = btn.closest('.quiz-question-block');
+ block.querySelectorAll('.quiz-option').forEach(o => o.classList.remove('selected'));
+ btn.classList.add('selected');
+ };
+
+ window.checkQuiz = function() {
+ document.querySelectorAll('.quiz-question-block').forEach(q => {
+ const selected = q.querySelector('.quiz-option.selected');
+ const feedback = q.querySelector('.quiz-feedback');
+ const correctValue = q.dataset.correct;
+
+ if (!selected) {
+ feedback.textContent = 'Pick an answer first!';
+ feedback.className = 'quiz-feedback show';
+ return;
+ }
+
+ if (selected.dataset.value === correctValue) {
+ selected.classList.add('correct');
+ feedback.innerHTML = '<strong>Exactly right!</strong>';
+ feedback.className = 'quiz-feedback show success';
+ } else {
+ selected.classList.add('incorrect');
+ const correct = q.querySelector(`[data-value="${correctValue}"]`);
+ if (correct) correct.classList.add('correct');
+ feedback.innerHTML = '<strong>Not quite.</strong> Review the modules above.';
+ feedback.className = 'quiz-feedback show error';
+ }
+
+ q.querySelectorAll('.quiz-option').forEach(o => o.disabled = true);
+ });
+ };
+
+ // Tooltips
+ let activeTooltip = null;
+ function positionTooltip(term, tip) {
+ const rect = term.getBoundingClientRect();
+ const tipWidth = 320;
+ let left = rect.left + rect.width / 2 - tipWidth / 2;
+ left = Math.max(8, Math.min(left, window.innerWidth - tipWidth - 8));
+ document.body.appendChild(tip);
+ const tipHeight = tip.offsetHeight || 80;
+ tip.style.left = left + 'px';
+ if (rect.top - tipHeight - 8 < 0) {
+ tip.style.top = (rect.bottom + 8) + 'px';
+ tip.classList.add('flip');
+ } else {
+ tip.style.top = (rect.top - tipHeight - 8) + 'px';
+ tip.classList.remove('flip');
+ }
+ }
+
+ document.querySelectorAll('.term').forEach(term => {
+ const tip = document.createElement('span');
+ tip.className = 'term-tooltip';
+ tip.textContent = term.dataset.definition;
+
+ term.addEventListener('mouseenter', () => {
+ if (activeTooltip && activeTooltip !== tip) { activeTooltip.classList.remove('visible'); activeTooltip.remove(); }
+ positionTooltip(term, tip);
+ requestAnimationFrame(() => tip.classList.add('visible'));
+ activeTooltip = tip;
+ });
+
+ term.addEventListener('mouseleave', () => {
+ tip.classList.remove('visible');
+ setTimeout(() => { if (!tip.classList.contains('visible')) tip.remove(); }, 150);
+ activeTooltip = null;
+ });
+
+ term.addEventListener('click', (e) => {
+ e.stopPropagation();
+ if (activeTooltip && activeTooltip !== tip) { activeTooltip.classList.remove('visible'); activeTooltip.remove(); }
+ if (tip.classList.contains('visible')) {
+ tip.classList.remove('visible'); tip.remove(); activeTooltip = null;
+ } else {
+ positionTooltip(term, tip);
+ requestAnimationFrame(() => tip.classList.add('visible'));
+ activeTooltip = tip;
+ }
+ });
+ });
+
+ document.addEventListener('click', () => {
+ if (activeTooltip) { activeTooltip.classList.remove('visible'); activeTooltip.remove(); activeTooltip = null; }
+ });
+
+ // Keyboard navigation
+ document.addEventListener('keydown', (e) => {
+ if (['INPUT', 'TEXTAREA'].includes(e.target.tagName)) return;
+ if (e.key === 'ArrowDown' || e.key === 'ArrowRight') {
+ const current = document.querySelector('.nav-dot.current');
+ const dots = Array.from(document.querySelectorAll('.nav-dot'));
+ const idx = dots.indexOf(current);
+ if (idx < dots.length - 1) { dots[idx + 1].click(); e.preventDefault(); }
+ }
+ if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') {
+ const current = document.querySelector('.nav-dot.current');
+ const dots = Array.from(document.querySelectorAll('.nav-dot'));
+ const idx = dots.indexOf(current);
+ if (idx > 0) { dots[idx - 1].click(); e.preventDefault(); }
+ }
+ });
+
+ // Update nav dots
+ window.addEventListener('scroll', () => {
+ const modules = document.querySelectorAll('.module');
+ let current = 0;
+ modules.forEach((mod, i) => {
+ const rect = mod.getBoundingClientRect();
+ if (rect.top <= window.innerHeight / 2) current = i;
+ });
+ document.querySelectorAll('.nav-dot').forEach((dot, i) => {
+ dot.classList.toggle('current', i === current);
+ });
+ }, { passive: true });
+ </script>
+</body>
+</html>

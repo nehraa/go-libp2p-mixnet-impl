@@ -42,6 +42,7 @@ func TestNewRejectsInvalidConfigValues(t *testing.T) {
 		{name: "negative metrics buffer", cfg: Config{ProtocolID: testProtocol, MetricsBufferSize: -1}},
 		{name: "negative read buffer", cfg: Config{ProtocolID: testProtocol, ReadBufferSize: -1}},
 		{name: "invalid overflow policy", cfg: Config{ProtocolID: testProtocol, EventOverflowPolicy: OverflowPolicy("unknown")}},
+		{name: "invalid transport mode", cfg: Config{ProtocolID: testProtocol, TransportMode: TransportMode("invalid")}},
 	}
 
 	for _, tc := range testCases {

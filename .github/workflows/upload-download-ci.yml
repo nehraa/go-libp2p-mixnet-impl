@@ -1,0 +1,57 @@
+name: Upload Download CI
+
+on:
+  pull_request:
+    paths:
+      - "p2p/hub/**"
+      - "p2p/upload/**"
+      - "p2p/download/**"
+      - "p2p/shardxfer/**"
+      - ".github/workflows/upload-download-ci.yml"
+  push:
+    paths:
+      - "p2p/hub/**"
+      - "p2p/upload/**"
+      - "p2p/download/**"
+      - "p2p/shardxfer/**"
+      - ".github/workflows/upload-download-ci.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: upload-download-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  upload-download-validation:
+    name: Upload Download Validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - name: Verify formatting
+        run: test -z "$(gofmt -l p2p/hub p2p/upload p2p/download p2p/shardxfer)"
+
+      - name: Run unit and integration tests
+        run: |
+          go test ./p2p/hub -run 'TestNormalizeConfig|TestNewRejectsInvalidConfigValues' -count=1
+          go test ./p2p/shardxfer ./p2p/upload ./p2p/download -count=1
+
+      - name: Run race tests
+        run: go test ./p2p/upload ./p2p/download -race -count=1
+
+      - name: Check coverage floor
+        run: |
+          go test ./p2p/shardxfer ./p2p/upload ./p2p/download -coverprofile=coverage.out
+          go tool cover -func=coverage.out
+          COVERAGE=$(go tool cover -func=coverage.out | awk '/total:/ {print substr($3, 1, length($3)-1)}')
+          awk -v cov="$COVERAGE" 'BEGIN { if (cov < 70.0) { exit 1 } }'

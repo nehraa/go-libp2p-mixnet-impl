@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/libp2p/go-libp2p/core/protocol"
+	mixnet "github.com/libp2p/go-libp2p/mixnet/core"
 )
 
 const (
@@ -26,6 +27,22 @@ const (
 	OverflowPolicyDrop OverflowPolicy = "drop"
 )
 
+// TransportMode controls which underlying transport the manager should use.
+type TransportMode string
+
+const (
+	// TransportModeHub keeps the existing direct libp2p stream transport.
+	TransportModeHub TransportMode = "hub"
+	// TransportModeMixnet routes data over the existing mixnet package.
+	TransportModeMixnet TransportMode = "mixnet"
+)
+
+// MixnetOptions contains runtime settings for optional mixnet transport.
+type MixnetOptions struct {
+	Enabled bool
+	Config  *mixnet.MixnetConfig
+}
+
 // Config defines hub behavior.
 type Config struct {
 	ProtocolID          protocol.ID
@@ -35,6 +52,8 @@ type Config struct {
 	MetricsBufferSize   int
 	ReadBufferSize      int
 	EventOverflowPolicy OverflowPolicy
+	TransportMode       TransportMode
+	Mixnet              MixnetOptions
 }
 
 func normalizeConfig(cfg Config) (Config, error) {
@@ -78,6 +97,28 @@ func normalizeConfig(cfg Config) (Config, error) {
 	case OverflowPolicyResetStream, OverflowPolicyDrop:
 	default:
 		return Config{}, fmt.Errorf("%w: unsupported event overflow policy %q", ErrInvalidConfig, cfg.EventOverflowPolicy)
+	}
+	if cfg.TransportMode == "" {
+		cfg.TransportMode = TransportModeHub
+	}
+	switch cfg.TransportMode {
+	case TransportModeHub:
+		cfg.Mixnet.Enabled = false
+	case TransportModeMixnet:
+		cfg.Mixnet.Enabled = true
+		mixCfg := cfg.Mixnet.Config
+		if mixCfg == nil {
+			mixCfg = mixnet.DefaultConfig()
+		} else {
+			mixCfg = mixCfg.Clone()
+			mixCfg.InitDefaults()
+		}
+		if err := mixCfg.Validate(); err != nil {
+			return Config{}, fmt.Errorf("%w: invalid mixnet config: %v", ErrInvalidConfig, err)
+		}
+		cfg.Mixnet.Config = mixCfg
+	default:
+		return Config{}, fmt.Errorf("%w: unsupported transport mode %q", ErrInvalidConfig, cfg.TransportMode)
 	}
 	return cfg, nil
 }

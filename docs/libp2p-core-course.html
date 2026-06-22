@@ -1,0 +1,1564 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Understanding libp2p Core: A Complete Course</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,700;12..96,800&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400;1,9..40,500&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --color-bg: #FAF7F2;
+            --color-bg-warm: #F5F0E8;
+            --color-bg-code: #1E1E2E;
+            --color-text: #2C2A28;
+            --color-text-secondary: #6B6560;
+            --color-text-muted: #9E9790;
+            --color-border: #E5DFD6;
+            --color-border-light: #EEEBE5;
+            --color-surface: #FFFFFF;
+            --color-surface-warm: #FDF9F3;
+            --color-accent: #2A7B9B;
+            --color-accent-hover: #236B8A;
+            --color-accent-light: #E4F2F7;
+            --color-accent-muted: #5A9BB8;
+            --color-success: #2D8B55;
+            --color-success-light: #E8F5EE;
+            --color-error: #C93B3B;
+            --color-error-light: #FDE8E8;
+            --color-info: #7B6DAA;
+            --color-info-light: #EDE9F5;
+            --color-actor-1: #2A7B9B;
+            --color-actor-2: #7B6DAA;
+            --color-actor-3: #D94F30;
+            --color-actor-4: #D4A843;
+            --color-actor-5: #2D8B55;
+            --font-display: 'Bricolage Grotesque', Georgia, serif;
+            --font-body: 'DM Sans', -apple-system, sans-serif;
+            --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+            --text-xs: 0.75rem;
+            --text-sm: 0.875rem;
+            --text-base: 1rem;
+            --text-lg: 1.125rem;
+            --text-xl: 1.25rem;
+            --text-2xl: 1.5rem;
+            --text-3xl: 1.875rem;
+            --text-4xl: 2.25rem;
+            --text-5xl: 3rem;
+            --text-6xl: 3.75rem;
+            --leading-tight: 1.15;
+            --leading-snug: 1.3;
+            --leading-normal: 1.6;
+            --leading-loose: 1.8;
+            --space-1: 0.25rem;
+            --space-2: 0.5rem;
+            --space-3: 0.75rem;
+            --space-4: 1rem;
+            --space-5: 1.25rem;
+            --space-6: 1.5rem;
+            --space-8: 2rem;
+            --space-10: 2.5rem;
+            --space-12: 3rem;
+            --space-16: 4rem;
+            --space-20: 5rem;
+            --space-24: 6rem;
+            --content-width: 800px;
+            --content-width-wide: 1000px;
+            --nav-height: 50px;
+            --radius-sm: 8px;
+            --radius-md: 12px;
+            --radius-lg: 16px;
+            --radius-full: 9999px;
+            --shadow-sm: 0 1px 2px rgba(44, 42, 40, 0.05);
+            --shadow-md: 0 4px 12px rgba(44, 42, 40, 0.08);
+            --shadow-lg: 0 8px 24px rgba(44, 42, 40, 0.1);
+            --shadow-xl: 0 16px 48px rgba(44, 42, 40, 0.12);
+            --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+            --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+            --duration-fast: 150ms;
+            --duration-normal: 300ms;
+            --duration-slow: 500ms;
+            --stagger-delay: 120ms;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        html { scroll-snap-type: y proximity; scroll-behavior: smooth; }
+        body {
+            font-family: var(--font-body);
+            color: var(--color-text);
+            background: var(--color-bg);
+            background-image: radial-gradient(ellipse at 80% 20%, rgba(42, 123, 155, 0.05) 0%, transparent 50%),
+                              radial-gradient(ellipse at 20% 80%, rgba(123, 109, 170, 0.05) 0%, transparent 50%);
+            line-height: var(--leading-normal);
+            overflow-x: hidden;
+        }
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: var(--color-border); border-radius: var(--radius-full); }
+
+        .nav {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: var(--nav-height);
+            background: rgba(250, 247, 242, 0.95);
+            backdrop-filter: blur(12px);
+            z-index: 1000;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 var(--space-6);
+            border-bottom: 1px solid var(--color-border);
+        }
+        .nav-title {
+            font-family: var(--font-display);
+            font-weight: 600;
+            font-size: var(--text-sm);
+        }
+        .nav-dots {
+            display: flex;
+            gap: var(--space-2);
+        }
+        .nav-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: var(--radius-full);
+            border: 2px solid var(--color-text-muted);
+            background: transparent;
+            cursor: pointer;
+            transition: all var(--duration-fast) var(--ease-out);
+        }
+        .nav-dot:hover { border-color: var(--color-accent); }
+        .nav-dot.current {
+            border-color: var(--color-accent);
+            background: var(--color-accent);
+            box-shadow: 0 0 8px rgba(42, 123, 155, 0.4);
+        }
+        .nav-dot.visited {
+            background: var(--color-accent);
+            border-color: var(--color-accent);
+        }
+        .progress-bar {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            height: 2px;
+            background: var(--color-accent);
+            width: 0%;
+            transition: width 0.1s linear;
+        }
+
+        .module {
+            min-height: 100dvh;
+            min-height: 100vh;
+            scroll-snap-align: start;
+            padding: var(--space-16) var(--space-6);
+            padding-top: calc(var(--nav-height) + var(--space-12));
+        }
+        .module:nth-child(odd) { background: var(--color-bg-warm); }
+        .module-content {
+            max-width: var(--content-width);
+            margin: 0 auto;
+        }
+        .module-header {
+            margin-bottom: var(--space-12);
+            text-align: center;
+        }
+        .module-number {
+            display: inline-block;
+            font-family: var(--font-display);
+            font-size: var(--text-6xl);
+            font-weight: 800;
+            color: var(--color-accent);
+            opacity: 0.15;
+            line-height: 1;
+        }
+        .module-title {
+            font-family: var(--font-display);
+            font-size: var(--text-4xl);
+            font-weight: 700;
+            margin-top: calc(-1 * var(--space-4));
+            line-height: var(--leading-tight);
+        }
+        .module-subtitle {
+            font-size: var(--text-lg);
+            color: var(--color-text-secondary);
+            margin-top: var(--space-4);
+            max-width: 600px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+
+        .screen { margin-bottom: var(--space-16); }
+        .screen-heading {
+            font-family: var(--font-display);
+            font-size: var(--text-2xl);
+            font-weight: 600;
+            margin-bottom: var(--space-6);
+            color: var(--color-text);
+        }
+
+        .animate-in {
+            opacity: 0;
+            transform: translateY(20px);
+            transition: opacity var(--duration-slow) var(--ease-out), transform var(--duration-slow) var(--ease-out);
+        }
+        .animate-in.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        pre, code {
+            font-family: var(--font-mono);
+            font-size: var(--text-sm);
+            white-space: pre-wrap;
+            word-break: break-word;
+            overflow-x: hidden;
+        }
+        pre::-webkit-scrollbar { display: none; }
+        .code-block {
+            background: var(--color-bg-code);
+            border-radius: var(--radius-md);
+            padding: var(--space-5);
+            margin: var(--space-6) 0;
+            color: #CDD6F4;
+        }
+        .code-keyword { color: #CBA6F7; }
+        .code-string { color: #A6E3A1; }
+        .code-function { color: #89B4FA; }
+        .code-comment { color: #6C7086; }
+        .code-number { color: #FAB387; }
+        .code-property { color: #F9E2AF; }
+
+        .translation-block {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: var(--space-4);
+            margin: var(--space-6) 0;
+        }
+        @media (max-width: 768px) {
+            .translation-block { grid-template-columns: 1fr; }
+        }
+        .translation-code, .translation-english {
+            border-radius: var(--radius-md);
+            padding: var(--space-5);
+        }
+        .translation-code {
+            background: var(--color-bg-code);
+            color: #CDD6F4;
+        }
+        .translation-english {
+            background: var(--color-surface);
+            border: 1px solid var(--color-border);
+        }
+        .translation-english h4 {
+            font-family: var(--font-display);
+            font-size: var(--text-sm);
+            font-weight: 600;
+            color: var(--color-text-secondary);
+            margin-bottom: var(--space-3);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        .translation-english p {
+            font-size: var(--text-sm);
+            color: var(--color-text);
+            margin-bottom: var(--space-3);
+        }
+        .translation-english p:last-child { margin-bottom: 0; }
+
+        /* Architecture Diagram */
+        .arch-diagram {
+            background: var(--color-surface);
+            border-radius: var(--radius-lg);
+            padding: var(--space-6);
+            margin: var(--space-6) 0;
+            border: 1px solid var(--color-border);
+        }
+        .arch-layers {
+            display: flex;
+            flex-direction: column;
+            gap: var(--space-3);
+        }
+        .arch-layer {
+            background: linear-gradient(to right, var(--color-bg-warm), var(--color-surface-warm));
+            border: 2px solid var(--color-border);
+            border-radius: var(--radius-md);
+            padding: var(--space-4);
+            display: flex;
+            align-items: center;
+            gap: var(--space-4);
+            transition: all var(--duration-normal) var(--ease-out);
+        }
+        .arch-layer:hover {
+            border-color: var(--color-accent);
+            box-shadow: var(--shadow-md);
+        }
+        .arch-layer-icon {
+            width: 48px;
+            height: 48px;
+            border-radius: var(--radius-md);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: var(--text-xl);
+            font-weight: 700;
+            color: white;
+            flex-shrink: 0;
+        }
+        .arch-layer-content { flex: 1; }
+        .arch-layer h4 {
+            font-family: var(--font-display);
+            font-weight: 600;
+            margin-bottom: var(--space-1);
+        }
+        .arch-layer p {
+            font-size: var(--text-sm);
+            color: var(--color-text-secondary);
+            margin: 0;
+        }
+        .arch-arrow {
+            text-align: center;
+            color: var(--color-text-muted);
+            font-size: var(--text-xl);
+        }
+
+        .chat-container {
+            background: var(--color-surface);
+            border-radius: var(--radius-lg);
+            padding: var(--space-6);
+            margin: var(--space-6) 0;
+            border: 1px solid var(--color-border);
+        }
+        .chat-message {
+            display: flex;
+            margin-bottom: var(--space-4);
+            opacity: 0;
+            transform: translateY(10px);
+            animation: fadeInUp 0.5s var(--ease-out) forwards;
+        }
+        .chat-message:nth-child(1) { animation-delay: 0.2s; }
+        .chat-message:nth-child(2) { animation-delay: 0.6s; }
+        .chat-message:nth-child(3) { animation-delay: 1s; }
+        .chat-message:nth-child(4) { animation-delay: 1.4s; }
+        .chat-avatar {
+            width: 40px;
+            height: 40px;
+            border-radius: var(--radius-full);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 600;
+            font-size: var(--text-xs);
+            color: white;
+            flex-shrink: 0;
+            margin-right: var(--space-3);
+        }
+        .chat-bubble {
+            background: var(--color-bg-warm);
+            border-radius: var(--radius-md);
+            padding: var(--space-3) var(--space-4);
+            max-width: 85%;
+        }
+        .chat-bubble.sent {
+            background: var(--color-accent-light);
+            margin-left: auto;
+        }
+        .chat-bubble p { font-size: var(--text-sm); margin: 0; }
+        .chat-bubble .timestamp {
+            font-size: var(--text-xs);
+            color: var(--color-text-muted);
+            margin-top: var(--space-1);
+        }
+        @keyframes fadeInUp { to { opacity: 1; transform: translateY(0); } }
+
+        .flow-diagram {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: var(--space-3);
+            margin: var(--space-8) 0;
+            flex-wrap: wrap;
+        }
+        .flow-node {
+            background: var(--color-surface);
+            border: 2px solid var(--color-border);
+            border-radius: var(--radius-md);
+            padding: var(--space-4) var(--space-5);
+            text-align: center;
+            min-width: 120px;
+        }
+        .flow-node h4 {
+            font-family: var(--font-display);
+            font-weight: 600;
+            font-size: var(--text-sm);
+            margin-bottom: var(--space-1);
+        }
+        .flow-node p {
+            font-size: var(--text-xs);
+            color: var(--color-text-secondary);
+            margin: 0;
+        }
+        .flow-arrow {
+            font-size: var(--text-xl);
+            color: var(--color-text-muted);
+        }
+
+        .pattern-cards {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: var(--space-4);
+            margin: var(--space-6) 0;
+        }
+        .pattern-card {
+            background: var(--color-surface);
+            border-radius: var(--radius-md);
+            padding: var(--space-5);
+            border: 1px solid var(--color-border);
+        }
+        .pattern-card h4 {
+            font-family: var(--font-display);
+            font-weight: 600;
+            margin-bottom: var(--space-3);
+            display: flex;
+            align-items: center;
+            gap: var(--space-2);
+        }
+        .pattern-card p {
+            font-size: var(--text-sm);
+            color: var(--color-text-secondary);
+        }
+        .pattern-icon {
+            width: 32px;
+            height: 32px;
+            border-radius: var(--radius-sm);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: var(--text-sm);
+            color: white;
+            font-weight: 600;
+        }
+
+        .quiz-container {
+            background: var(--color-surface);
+            border-radius: var(--radius-lg);
+            padding: var(--space-6);
+            margin: var(--space-8) 0;
+            border: 1px solid var(--color-border);
+        }
+        .quiz-question {
+            font-family: var(--font-display);
+            font-weight: 600;
+            font-size: var(--text-lg);
+            margin-bottom: var(--space-5);
+        }
+        .quiz-options {
+            display: flex;
+            flex-direction: column;
+            gap: var(--space-3);
+        }
+        .quiz-option {
+            background: var(--color-bg-warm);
+            border: 2px solid var(--color-border);
+            border-radius: var(--radius-md);
+            padding: var(--space-4);
+            cursor: pointer;
+            transition: all var(--duration-fast) var(--ease-out);
+        }
+        .quiz-option:hover { border-color: var(--color-accent-muted); }
+        .quiz-option.correct {
+            background: var(--color-success-light);
+            border-color: var(--color-success);
+        }
+        .quiz-option.wrong {
+            background: var(--color-error-light);
+            border-color: var(--color-error);
+        }
+        .quiz-option p { font-size: var(--text-sm); margin: 0; }
+        .quiz-feedback {
+            margin-top: var(--space-4);
+            padding: var(--space-4);
+            border-radius: var(--radius-md);
+            display: none;
+        }
+        .quiz-feedback.show { display: block; }
+        .quiz-feedback.correct {
+            background: var(--color-success-light);
+            color: var(--color-success);
+        }
+        .quiz-feedback.wrong {
+            background: var(--color-error-light);
+            color: var(--color-error);
+        }
+
+        .callout {
+            background: var(--color-surface);
+            border-left: 4px solid var(--color-accent);
+            border-radius: 0 var(--radius-md) var(--radius-md) 0;
+            padding: var(--space-5);
+            margin: var(--space-6) 0;
+        }
+        .callout h4 {
+            font-family: var(--font-display);
+            font-weight: 600;
+            color: var(--color-accent);
+            margin-bottom: var(--space-2);
+        }
+        .callout p {
+            font-size: var(--text-sm);
+            color: var(--color-text-secondary);
+        }
+
+        .has-tooltip {
+            border-bottom: 1px dashed var(--color-accent);
+            cursor: pointer;
+            position: relative;
+        }
+        .tooltip {
+            position: fixed;
+            background: var(--color-text);
+            color: var(--color-bg);
+            padding: var(--space-3) var(--space-4);
+            border-radius: var(--radius-sm);
+            font-size: var(--text-xs);
+            max-width: 280px;
+            z-index: 10000;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity var(--duration-fast) var(--ease-out);
+        }
+        .tooltip.show { opacity: 1; }
+        .tooltip::after {
+            content: '';
+            position: absolute;
+            bottom: -6px;
+            left: 50%;
+            transform: translateX(-50%);
+            border-width: 6px 6px 0;
+            border-style: solid;
+            border-color: var(--color-text) transparent transparent;
+        }
+        .tooltip.above::after {
+            bottom: auto;
+            top: -6px;
+            border-width: 0 6px 6px;
+            border-color: transparent transparent var(--color-text);
+        }
+
+        .actor-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: var(--space-2);
+            padding: var(--space-1) var(--space-3);
+            border-radius: var(--radius-full);
+            font-size: var(--text-xs);
+            font-family: var(--font-mono);
+            font-weight: 500;
+        }
+        .actor-host { background: rgba(42, 123, 155, 0.1); color: var(--color-actor-1); }
+        .actor-network { background: rgba(123, 109, 170, 0.1); color: var(--color-actor-2); }
+        .actor-transport { background: rgba(217, 79, 48, 0.1); color: var(--color-actor-3); }
+        .actor-peer { background: rgba(212, 168, 67, 0.1); color: var(--color-actor-4); }
+
+        .key-visual {
+            background: linear-gradient(135deg, var(--color-accent-light), var(--color-info-light));
+            border-radius: var(--radius-lg);
+            padding: var(--space-8);
+            margin: var(--space-8) 0;
+            text-align: center;
+        }
+        .key-visual h3 {
+            font-family: var(--font-display);
+            font-size: var(--text-xl);
+            margin-bottom: var(--space-4);
+        }
+        .key-visual .key-box {
+            background: var(--color-surface);
+            border-radius: var(--radius-md);
+            padding: var(--space-4);
+            margin: var(--space-4) 0;
+            border: 1px solid var(--color-border);
+            font-family: var(--font-mono);
+            font-size: var(--text-sm);
+            word-break: break-all;
+        }
+    </style>
+</head>
+<body>
+    <nav class="nav">
+        <span class="nav-title">libp2p Core Course</span>
+        <div class="nav-dots">
+            <button class="nav-dot current" data-target="module-1" aria-label="Module 1"></button>
+            <button class="nav-dot" data-target="module-2" aria-label="Module 2"></button>
+            <button class="nav-dot" data-target="module-3" aria-label="Module 3"></button>
+            <button class="nav-dot" data-target="module-4" aria-label="Module 4"></button>
+            <button class="nav-dot" data-target="module-5" aria-label="Module 5"></button>
+            <button class="nav-dot" data-target="module-6" aria-label="Module 6"></button>
+            <button class="nav-dot" data-target="module-7" aria-label="Module 7"></button>
+        </div>
+        <div class="progress-bar"></div>
+    </nav>
+
+    <!-- Module 1: What is libp2p -->
+    <section class="module" id="module-1">
+        <div class="module-content">
+            <header class="module-header animate-in">
+                <span class="module-number">01</span>
+                <h1 class="module-title">What is libp2p?</h1>
+                <p class="module-subtitle">Understanding the building blocks of peer-to-peer networking</p>
+            </header>
+
+            <div class="screen animate-in">
+                <h2 class="screen-heading">The P2P Networking Challenge</h2>
+                <p>Building peer-to-peer applications is hard. You need to <strong>find peers</strong>, <strong>connect to them</strong>, <strong>prove who they are</strong>, and <strong>send data</strong> — all without a central server.</p>
+
+                <p>libp2p solves this by providing a <span class="has-tooltip" data-tooltip="A modular networking stack means you can swap components - use TCP today, WebRTC tomorrow, without changing your app logic">modular networking stack</span> that handles all the hard parts. Think of it as the "operating system" for P2P apps.</p>
+
+                <div class="arch-diagram">
+                    <h3 style="font-family: var(--font-display); text-align: center; margin-bottom: var(--space-6);">The libp2p Stack</h3>
+                    <div class="arch-layers">
+                        <div class="arch-layer" id="layer-host">
+                            <div class="arch-layer-icon" style="background: var(--color-actor-1);">H</div>
+                            <div class="arch-layer-content">
+                                <h4>Host</h4>
+                                <p>Your node's identity and main API — think of it as your P2P profile</p>
+                            </div>
+                        </div>
+                        <div class="arch-arrow">↓</div>
+                        <div class="arch-layer" id="layer-network">
+                            <div class="arch-layer-icon" style="background: var(--color-actor-2);">N</div>
+                            <div class="arch-layer-content">
+                                <h4>Network</h4>
+                                <p>Manages connections, dialing, and connection state</p>
+                            </div>
+                        </div>
+                        <div class="arch-arrow">↓</div>
+                        <div class="arch-layer" id="layer-transport">
+                            <div class="arch-layer-icon" style="background: var(--color-actor-3);">T</div>
+                            <div class="arch-layer-content">
+                                <h4>Transport</h4>
+                                <p>Actual wire protocols: TCP, WebSocket, QUIC, etc.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="callout">
+                    <h4>Why This Matters for AI Steering</h4>
+                    <p>When you tell AI "build a P2P chat app," it needs to know which layer handles what. Put crypto logic in Transport? Wrong. Handle peer discovery in Network? Right. Understanding the stack helps you catch architectural mistakes before they become bugs.</p>
+                </div>
+            </div>
+
+            <div class="screen animate-in">
+                <h2 class="screen-heading">The Complete Picture</h2>
+                <p>A libp2p node isn't just one thing — it's a collaboration between specialized components:</p>
+
+                <div class="pattern-cards">
+                    <div class="pattern-card">
+                        <h4><span class="pattern-icon" style="background: var(--color-actor-1);">ID</span> Peer Identity</h4>
+                        <p><span class="has-tooltip" data-tooltip="Peer IDs are derived from public keys, creating a cryptographic identity that proves who you are on the network">Cryptographic IDs</span> that prove who you are. Derived from keys, impossible to fake.</p>
+                    </div>
+                    <div class="pattern-card">
+                        <h4><span class="pattern-icon" style="background: var(--color-actor-2);">K</span> Crypto Keys</h4>
+                        <p>Ed25519, RSA, Secp256k1 — your identity's foundation. Keys sign messages and encrypt streams.</p>
+                    </div>
+                    <div class="pattern-card">
+                        <h4><span class="pattern-icon" style="background: var(--color-actor-3);">D</span> Discovery</h4>
+                        <p>Finding peers without central servers. DHT, mDNS, bootstrap nodes.</p>
+                    </div>
+                    <div class="pattern-card">
+                        <h4><span class="pattern-icon" style="background: var(--color-actor-4);">M</span> Multiaddr</h4>
+                        <p>Flexible addressing: <code>/ip4/1.2.3.4/tcp/4001/p2p/QmPeer...</code> Self-describing and composable.</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="quiz-container">
+                <p class="quiz-question">You're building a video call app. Where should peer authentication (verifying identities) happen?</p>
+                <div class="quiz-options">
+                    <div class="quiz-option" data-correct="true"><p>A. At the Transport layer, using cryptographic peer IDs for authentication</p></div>
+                    <div class="quiz-option" data-correct="false"><p>B. In your application code after connection</p></div>
+                    <div class="quiz-option" data-correct="false"><p>C. In a separate central server that validates JWT tokens</p></div>
+                </div>
+                <div class="quiz-feedback"></div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Module 2: Peer Identity -->
+    <section class="module" id="module-2">
+        <div class="module-content">
+            <header class="module-header animate-in">
+                <span class="module-number">02</span>
+                <h1 class="module-title">Peer Identity</h1>
+                <p class="module-subtitle">Your cryptographic passport on the P2P network</p>
+            </header>
+
+            <div class="screen animate-in">
+                <h2 class="screen-heading">What is a Peer ID?</h2>
+                <p>In libp2p, identity is <strong>cryptographic</strong>. Your <span class="has-tooltip" data-tooltip="A Peer ID is a hash of your public key - it proves you own the corresponding private key without revealing it">Peer ID</span> proves you are who you say you are, and nobody can impersonate you without stealing your private key.</p>
+
+                <div class="key-visual">
+                    <h3>Peer ID Generation</h3>
+                    <div style="display: flex; gap: var(--space-4); justify-content: center; align-items: center; flex-wrap: wrap;">
+                        <div style="text-align: center;">
+                            <div style="background: var(--color-surface); border-radius: var(--radius-full); width: 60px; height: 60px; display: flex; align-items: center; justify-content: center; margin: 0 auto; border: 2px solid var(--color-border);">🔑</div>
+                            <p style="font-size: var(--text-xs); margin-top: var(--space-2);">Private Key</p>
+                        </div>
+                        <span style="font-size: var(--text-2xl);">→</span>
+                        <div style="text-align: center;">
+                            <div style="background: var(--color-surface); border-radius: var(--radius-full); width: 60px; height: 60px; display: flex; align-items: center; justify-content: center; margin: 0 auto; border: 2px solid var(--color-border);">🔓</div>
+                            <p style="font-size: var(--text-xs); margin-top: var(--space-2);">Public Key</p>
+                        </div>
+                        <span style="font-size: var(--text-2xl);">→</span>
+                        <div style="text-align: center;">
+                            <div style="background: var(--color-surface); border-radius: var(--radius-full); width: 60px; height: 60px; display: flex; align-items: center; justify-content: center; margin: 0 auto; border: 2px solid var(--color-accent);">#</div>
+                            <p style="font-size: var(--text-xs); margin-top: var(--space-2);">Hash</p>
+                        </div>
+                        <span style="font-size: var(--text-2xl);">→</span>
+                        <div style="text-align: center;">
+                            <div style="background: var(--color-accent-light); border-radius: var(--radius-full); width: 60px; height: 60px; display: flex; align-items: center; justify-content: center; margin: 0 auto; border: 2px solid var(--color-accent);">ID</div>
+                            <p style="font-size: var(--text-xs); margin-top: var(--space-2);">Peer ID</p>
+                        </div>
+                    </div>
+                </div>
+
+                <p>Here's how it works: You generate a key pair. The public key gets <span class="has-tooltip" data-tooltip="Multihash is a format that includes the hash function type, making IDs self-describing">hashed</span> using SHA-256. That hash becomes your Peer ID. It's like a fingerprint — unique to you and impossible to reverse-engineer back to your key.</p>
+            </div>
+
+            <div class="screen animate-in">
+                <h2 class="screen-heading">Peer ID in Code</h2>
+
+                <div class="translation-block">
+                    <div class="translation-code">
+<pre><span class="code-comment">// From core/peer/peer.go</span>
+
+<span class="code-comment">// ID is a libp2p peer identity</span>
+<span class="code-comment">// Derived by hashing a peer's public key</span>
+type ID <span class="code-keyword">string</span>
+
+<span class="code-function">func</span> IDFromPublicKey(pk ic.PubKey) (ID, <span class="code-keyword">error</span>) {
+    <span class="code-comment">// Marshal to bytes then hash</span>
+    b, err := pk.Bytes()
+    <span class="code-keyword">if</span> err != <span class="code-keyword">nil</span> {
+        <span class="code-keyword">return</span> <span class="code-string">""</span>, err
+    }
+
+    <span class="code-comment">// Hash using SHA-256</span>
+    hash, _ := mh.Sum(b, mh.SHA2_256, -1)
+    <span class="code-keyword">return</span> ID(hash), <span class="code-keyword">nil</span>
+}</pre>
+                    </div>
+                    <div class="translation-english">
+                        <h4>The Process Unpacked</h4>
+                        <p><strong>1. Get public key:</strong> Start with your public key that pairs with your private key.</p>
+                        <p><strong>2. Convert to bytes:</strong> Serialize the key into raw bytes that can be hashed.</p>
+                        <p><strong>3. Hash it:</strong> Use SHA-256, a one-way hash function. This is your Peer ID - you can't reverse it to get the original key.</p>
+                        <p><strong>Result:</strong> A 46-character string starting with "Qm" (like <code>QmYy...3k7i</code>) that uniquely identifies you on the network.</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="screen animate-in">
+                <h2 class="screen-heading">Why This Design?</h2>
+
+                <div class="chat-container">
+                    <div class="chat-message">
+                        <div class="chat-avatar" style="background: var(--color-actor-1);">User</div>
+                        <div class="chat-bubble" style="background: var(--color-bg-warm);">
+                            <p>Can someone pretend to be me by guessing my Peer ID?</p>
+                        </div>
+                    </div>
+                    <div class="chat-message">
+                        <div class="chat-avatar" style="background: var(--color-actor-2);">libp2p</div>
+                        <div class="chat-bubble sent">
+                            <p>No! Your Peer ID is public. But to PROVE you're that Peer ID, you need the private key. Every connection includes cryptographic proof.</p>
+                            <p class="timestamp">Explained in: id.MatchesPrivateKey(sk)</p>
+                        </div>
+                    </div>
+                    <div class="chat-message">
+                        <div class="chat-avatar" style="background: var(--color-actor-1);">User</div>
+                        <div class="chat-bubble" style="background: var(--color-bg-warm);">
+                            <p>What if I lose my private key?</p>
+                        </div>
+                    </div>
+                    <div class="chat-message">
+                        <div class="chat-avatar" style="background: var(--color-actor-2);">libp2p</div>
+                        <div class="chat-bubble sent">
+                            <p>You lose your identity. There's no central authority to recover it. Backup your keys! This is how decentralization works.</p>
+                            <p class="timestamp">No recovery mechanism exists</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="callout">
+                    <h4>Verification Without Exposure</h4>
+                    <p>The Peer ID contains your public key (in small keys) or its hash (for larger keys). When someone connects, they verify by checking: "Does the public key hash to this Peer ID?" Then a challenge-response proves you own the private key. Your private key NEVER leaves your machine.</p>
+                </div>
+            </div>
+
+            <div class="quiz-container">
+                <p class="quiz-question">Your app generates a key pair. Can you change the Peer ID while keeping the same key?</p>
+                <div class="quiz-options">
+                    <div class="quiz-option" data-correct="false"><p>A. Yes, Peer IDs are configurable</p></div>
+                    <div class="quiz-option" data-correct="true"><p>B. No, the Peer ID is deterministically derived from the public key</p></div>
+                    <div class="quiz-option" data-correct="false"><p>C. Only if you rehash with a different algorithm</p></div>
+                </div>
+                <div class="quiz-feedback"></div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Module 3: Crypto Keys -->
+    <section class="module" id="module-3">
+        <div class="module-content">
+            <header class="module-header animate-in">
+                <span class="module-number">03</span>
+                <h1 class="module-title">Cryptographic Keys</h1>
+                <p class="module-subtitle">The foundation of trust in P2P networks</p>
+            </header>
+
+            <div class="screen animate-in">
+                <h2 class="screen-heading">Key Types in libp2p</h2>
+                <p>libp2p supports multiple <span class="has-tooltip" data-tooltip="Cryptographic key algorithms determine how keys are generated, signatures are created/verified, and sometimes performance characteristics">key algorithms</span>. Each has tradeoffs in security, speed, and key size.</p>
+
+                <div class="pattern-cards">
+                    <div class="pattern-card">
+                        <h4><span class="pattern-icon" style="background: var(--color-success);">E</span> Ed25519 <span style="font-size: var(--text-xs); color: var(--color-text-muted);">(Recommended)</span></h4>
+                        <p>Fast, secure, small keys. Modern elliptic curve cryptography. Signatures are compact, verification is quick. Best for most applications.</p>
+                    </div>
+                    <div class="pattern-card">
+                        <h4><span class="pattern-icon" style="background: var(--color-info);">R</span> RSA <span style="font-size: var(--text-xs); color: var(--color-text-muted);">(Legacy)</span></h4>
+                        <p>Large keys (2048+ bits). Battle-tested but slower. Use only if required by external systems that mandate RSA.</p>
+                    </div>
+                    <div class="pattern-card">
+                        <h4><span class="pattern-icon" style="background: var(--color-actor-4);">S</span> Secp256k1</h4>
+                        <p>Bitcoin/Blockchain standard. Same curve used for Bitcoin addresses. Good for crypto-native applications.</p>
+                    </div>
+                    <div class="pattern-card">
+                        <h4><span class="pattern-icon" style="background: var(--color-actor-3);">EC</span> ECDSA</h4>
+                        <p>Elliptic curve with various curves. Good for compatibility with existing PKI systems.</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="screen animate-in">
+                <h2 class="screen-heading">Key Interfaces</h2>
+
+                <div class="translation-block">
+                    <div class="translation-code">
+<pre><span class="code-comment">// From core/crypto/key.go</span>
+
+<span class="code-comment">// Key is the common interface for all keys</span>
+type Key interface {
+    Equals(Key) <span class="code-keyword">bool</span>
+    Raw() ([]<span class="code-keyword">byte</span>, <span class="code-keyword">error</span>)
+    Type() pb.KeyType
+}
+
+<span class="code-comment">// PrivKey represents a private key</span>
+type PrivKey interface {
+    Key
+    Sign([]<span class="code-keyword">byte</span>) ([]<span class="code-keyword">byte</span>, <span class="code-keyword">error</span>)
+    GetPublic() PubKey
+}
+
+<span class="code-comment">// PubKey represents a public key</span>
+type PubKey interface {
+    Key
+    Verify(data []<span class="code-keyword">byte</span>, sig []<span class="code-keyword">byte</span>) (
+        <span class="code-keyword">bool</span>, <span class="code-keyword">error</span>)
+}</pre>
+                    </div>
+                    <div class="translation-english">
+                        <h4>The Key Abstraction</h4>
+                        <p><strong>Key interface:</strong> All keys can compare for equality, export raw bytes, and report their type.</p>
+                        <p><strong>PrivKey:</strong> Can Sign data (proving ownership) and derive the corresponding PubKey.</p>
+                        <p><strong>PubKey:</strong> Can Verify that a signature was created by the matching private key.</p>
+                        <p>This abstraction lets libp2p support multiple algorithms with the same interface. Your app doesn't care if it's RSA or Ed25519 — it just calls Sign() and Verify().</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="screen animate-in">
+                <h2 class="screen-heading">Sign and Verify</h2>
+
+                <div class="chat-container">
+                    <div class="chat-message">
+                        <div class="chat-avatar" style="background: var(--color-actor-1);">Alice</div>
+                        <div class="chat-bubble sent">
+                            <p>I'm sending you a message! Here's my signature...</p>
+                            <p class="timestamp">msg + signature over hash(msg)</p>
+                        </div>
+                    </div>
+                    <div class="chat-message">
+                        <div class="chat-avatar" style="background: var(--color-actor-2);">Bob</div>
+                        <div class="chat-bubble" style="background: var(--color-bg-warm);">
+                            <p>Let me verify... hash(msg) matches, signature valid. This really came from Alice!</p>
+                            <p class="timestamp">pubKey.Verify(hash(msg), signature)</p>
+                        </div>
+                    </div>
+                </div>
+
+                <p>This is what happens on every libp2p connection. Your keys prove your identity without revealing anything sensitive.</p>
+            </div>
+
+            <div class="quiz-container">
+                <p class="quiz-question">Why is Ed25519 preferred over RSA for new libp2p applications?</p>
+                <div class="quiz-options">
+                    <div class="quiz-option" data-correct="true"><p>A. Smaller keys, faster signatures, same security level</p></div>
+                    <div class="quiz-option" data-correct="false"><p>B. RSA is broken and insecure</p></div>
+                    <div class="quiz-option" data-correct="false"><p>C. Ed25519 is required by the libp2p specification</p></div>
+                </div>
+                <div class="quiz-feedback"></div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Module 4: The Host -->
+    <section class="module" id="module-4">
+        <div class="module-content">
+            <header class="module-header animate-in">
+                <span class="module-number">04</span>
+                <h1 class="module-title">The Host</h1>
+                <p class="module-subtitle">Your node's main entry point — the "face" of your P2P application</p>
+            </header>
+
+            <div class="screen animate-in">
+                <h2 class="screen-heading">What is a Host?</h2>
+                <p>The <span class="has-tooltip" data-tooltip="The Host interface is the primary API for interacting with the P2P network - it combines server-like listening and client-like connecting">Host</span> is your application's P2P persona. It's both a server (listening for incoming connections) and a client (connecting to other peers).</p>
+
+                <div class="callout">
+                    <h4>The Name Matters</h4>
+                    <p>It's called "Host" (not "Client" or "Server") because every node is both. In P2P, there's no distinction between clients and servers — everyone can initiate and receive connections.</p>
+                </div>
+            </div>
+
+            <div class="screen animate-in">
+                <h2 class="screen-heading">The Host Interface</h2>
+
+                <div class="translation-block">
+                    <div class="translation-code">
+<pre><span class="code-comment">// From core/host/host.go</span>
+
+type Host interface {
+    <span class="code-comment">// Identity</span>
+    ID() peer.ID
+    Addrs() []ma.Multiaddr
+
+    <span class="code-comment">// Connections</span>
+    Connect(ctx context.Context, pi peer.AddrInfo) <span class="code-keyword">error</span>
+    Network() network.Network
+
+    <span class="code-comment">// Protocols</span>
+    SetStreamHandler(pid protocol.ID, handler network.StreamHandler)
+    NewStream(ctx context.Context, p peer.ID, pids ...protocol.ID) (network.Stream, <span class="code-keyword">error</span>)
+
+    <span class="code-comment">// Lifecycle</span>
+    Close() <span class="code-keyword">error</span>
+}</pre>
+                    </div>
+                    <div class="translation-english">
+                        <h4>What a Host Can Do</h4>
+                        <p><strong>ID():</strong> Returns your Peer ID — who you are on the network.</p>
+                        <p><strong>Addrs():</strong> Your listen addresses where peers can reach you.</p>
+                        <p><strong>Connect():</strong> Dial another peer, establishing a connection.</p>
+                        <p><strong>SetStreamHandler():</strong> Register a handler for incoming data on a protocol.</p>
+                        <p><strong>NewStream():</strong> Open a stream to another peer for sending data.</p>
+                        <p><strong>Network():</strong> Access the underlying Network for advanced operations.</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="screen animate-in">
+                <h2 class="screen-heading">The Complete Flow</h2>
+
+                <div class="flow-diagram">
+                    <div class="flow-node" style="border-color: var(--color-actor-1);">
+                        <h4>Create Host</h4>
+                        <p>libp2p.New()</p>
+                    </div>
+                    <span class="flow-arrow">→</span>
+                    <div class="flow-node" style="border-color: var(--color-actor-2);">
+                        <h4>Set Handler</h4>
+                        <p>SetStreamHandler(...)</p>
+                    </div>
+                    <span class="flow-arrow">→</span>
+                    <div class="flow-node" style="border-color: var(--color-actor-3);">
+                        <h4>Connect</h4>
+                        <p>Connect(ctx, peer)</p>
+                    </div>
+                    <span class="flow-arrow">→</span>
+                    <div class="flow-node" style="border-color: var(--color-actor-4);">
+                        <h4>Stream</h4>
+                        <p>NewStream(...) → Send</p>
+                    </div>
+                </div>
+
+                <div class="translation-block">
+                    <div class="translation-code">
+<pre><span class="code-comment">// Real code from the codebase</span>
+<span class="code-function">func</span> main() {
+    <span class="code-comment">// 1. Create host</span>
+    h, _ := libp2p.New(
+        libp2p.ListenAddrStrings(<span class="code-string">"/ip4/127.0.0.1/tcp/0"</span>),
+    )
+
+    <span class="code-comment">// 2. Handle incoming</span>
+    h.SetStreamHandler(<span class="code-string">"/chat/1.0.0"</span>, <span class="code-function">func</span>(s network.Stream) {
+        <span class="code-comment">// Handle incoming data</span>
+    })
+
+    <span class="code-comment">// 3. Connect to peer</span>
+    h.Connect(ctx, peer.AddrInfo{
+        ID: targetPeer,
+        Addrs: addrs,
+    })
+
+    <span class="code-comment">// 4. Open stream</span>
+    s, _ := h.NewStream(ctx, targetPeer, <span class="code-string">"/chat/1.0.0"</span>)
+    s.Write([]<span class="code-keyword">byte</span>(<span class="code-string">"Hello!"</span>))
+}</pre>
+                    </div>
+                    <div class="translation-english">
+                        <h4>Four-Step Pattern</h4>
+                        <p><strong>1. Create:</strong> Initialize with listen addresses. The "/tcp/0" means "choose any available port."</p>
+                        <p><strong>2. Listen:</strong> Register handlers for protocols. Like setting up URL routes in a web server.</p>
+                        <p><strong>3. Connect:</strong> Dial the peer. This establishes an encrypted, authenticated connection.</p>
+                        <p><strong>4. Communicate:</strong> Open streams within the connection. Each stream is like a separate conversation.</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="quiz-container">
+                <p class="quiz-question">You want to handle incoming chat messages. Where do you register your logic?</p>
+                <div class="quiz-options">
+                    <div class="quiz-option" data-correct="true"><p>A. host.SetStreamHandler("/chat/1.0.0", yourHandlerFunc)</p></div>
+                    <div class="quiz-option" data-correct="false"><p>B. Create a new thread listening on a UDP socket</p></div>
+                    <div class="quiz-option" data-correct="false"><p>C. Implement the Host interface with a custom handler method</p></div>
+                </div>
+                <div class="quiz-feedback"></div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Module 5: Network Layer -->
+    <section class="module" id="module-5">
+        <div class="module-content">
+            <header class="module-header animate-in">
+                <span class="module-number">05</span>
+                <h1 class="module-title">The Network Layer</h1>
+                <p class="module-subtitle">Managing connections, streams, and connectivity state</p>
+            </header>
+
+            <div class="screen animate-in">
+                <h2 class="screen-heading">Network Responsibilities</h2>
+                <p>While the Host is your high-level API, the <span class="has-tooltip" data-tooltip="The Network is the layer that actually manages connections - negotiating transports, upgrading security, and multiplexing streams">Network</span> does the heavy lifting: managing connections, tracking peer connectivity, and coordinating with Transports.</p>
+
+                <div class="arch-diagram">
+                    <h3 style="font-family: var(--font-display); text-align: center; margin-bottom: var(--space-6);">Connection State Machine</h3>
+                    <div style="display: flex; justify-content: center; gap: var(--space-4); flex-wrap: wrap;">
+                        <div class="flow-node" style="border-color: var(--color-text-muted);">
+                            <h4>NotConnected</h4>
+                            <p>No connection, no info</p>
+                        </div>
+                        <span class="flow-arrow">→</span>
+                        <div class="flow-node" style="border-color: var(--color-info);">
+                            <h4>Limited</h4>
+                            <p>Relay or partial</p>
+                        </div>
+                        <span class="flow-arrow">→</span>
+                        <div class="flow-node" style="border-color: var(--color-success);">
+                            <h4>Connected</h4>
+                            <p>Direct, full connection</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="screen animate-in">
+                <h2 class="screen-heading">The Network Interface</h2>
+
+                <div class="translation-block">
+                    <div class="translation-code">
+<pre><span class="code-comment">// From core/network/network.go</span>
+
+type Network interface {
+    <span class="code-comment">// Core connection management</span>
+    DialPeer(ctx context.Context, p peer.ID) (Conn, <span class="code-keyword">error</span>)
+    ClosePeer(p peer.ID) <span class="code-keyword">error</span>
+
+    <span class="code-comment">// Connection queries</span>
+    Connectedness(p peer.ID) Connectedness
+    Peers() []peer.ID
+    Conns() []Conn
+    ConnsToPeer(p peer.ID) []Conn
+
+    <span class="code-comment">// Stream handling</span>
+    NewStream(ctx context.Context, p peer.ID) (Stream, <span class="code-keyword">error</span>)
+    SetStreamHandler(handler StreamHandler)
+
+    <span class="code-comment">// Listening</span>
+    Listen(...ma.Multiaddr) <span class="code-keyword">error</span>
+    ListenAddresses() []ma.Multiaddr
+
+    <span class="code-comment">// Notifications</span>
+    Notify(Notifiee)
+    StopNotify(Notifiee)
+}
+</pre>
+                    </div>
+                    <div class="translation-english">
+                        <h4>Network Operations</h4>
+                        <p><strong>DialPeer:</strong> Initiates connection to a specific peer. Coordinates with Transports to find the best path.</p>
+                        <p><strong>Connectedness:</strong> Returns state: NotConnected, Connected, or Limited (through relay).</p>
+                        <p><strong>Peers/Conns:</strong> Lists all connected peers and active connections. Useful for building peer lists.</p>
+                        <p><strong>Notify:</strong> Register callbacks for connection events — get notified when peers connect/disconnect.</p>
+                        <p>The Network is what makes the Host work. It abstracts over multiple transports and manages the complexity of P2P connectivity.</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="screen animate-in">
+                <h2 class="screen-heading">Streams vs Connections</h2>
+
+                <div class="pattern-cards">
+                    <div class="pattern-card">
+                        <h4><span class="pattern-icon" style="background: var(--color-actor-1);">C</span> Connection</h4>
+                        <p>The underlying <strong>transport link</strong> to a peer. Think of it as a single pipe that can carry multiple conversations.</p>
+                    </div>
+                    <div class="pattern-card">
+                        <h4><span class="pattern-icon" style="background: var(--color-actor-2);">S</span> Stream</h4>
+                        <p>A <strong>multiplexed channel</strong> within a connection. One connection can have many streams — each protocol gets its own stream, all sharing the same pipe.</p>
+                    </div>
+                </div>
+
+                <div class="callout">
+                    <h4>The Multiplexing Advantage</h4>
+                    <p>Without multiplexing, you'd need one connection per protocol. With it, you open one connection, then create streams for chat, file transfer, and control messages. It's like having multiple apps on your phone share one WiFi connection.</p>
+                </div>
+
+                <div class="chat-container">
+                    <div class="chat-message">
+                        <div class="chat-avatar" style="background: var(--color-actor-1);">Host</div>
+                        <div class="chat-bubble sent">
+                            <p>I need to send chat data AND check the DHT for new peers...</p>
+                        </div>
+                    </div>
+                    <div class="chat-message">
+                        <div class="chat-avatar" style="background: var(--color-actor-2);">Network</div>
+                        <div class="chat-bubble">
+                            <p>✓ You have one connection to peer X. Opening 2 streams: /chat/1.0.0 and /ipfs/kad/1.0.0</p>
+                            <p class="timestamp">Both streams multiplexed over single connection</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="quiz-container">
+                <p class="quiz-question">You're building a file sync app. Users need to browse files while syncing. How many connections to the same peer should you maintain?</p>
+                <div class="quiz-options">
+                    <div class="quiz-option" data-correct="false"><p>A. One connection for browsing, one for syncing — total 2</p></div>
+                    <div class="quiz-option" data-correct="true"><p>B. One connection, multiple streams — /file-list/1.0 and /file-sync/1.0</p></div>
+                    <div class="quiz-option" data-correct="false"><p>C. One connection per file being synced</p></div>
+                </div>
+                <div class="quiz-feedback"></div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Module 6: Transport -->
+    <section class="module" id="module-6">
+        <div class="module-content">
+            <header class="module-header animate-in">
+                <span class="module-number">06</span>
+                <h1 class="module-title">Transport Layer</h1>
+                <p class="module-subtitle">Getting bits across the wire — TCP, QUIC, WebSocket, and more</p>
+            </header>
+
+            <div class="screen animate-in">
+                <h2 class="screen-heading">What is a Transport?</h2>
+                <p><span class="has-tooltip" data-tooltip="Transports implement the actual networking protocols - TCP, WebSocket, QUIC. They're pluggable, so you can add new transports without changing application code.">Transports</span> are the bottom of the stack — they actually move bytes between machines. libp2p abstracts over them, so your app doesn't care if it's TCP, QUIC, or carrier pigeon.</p>
+
+                <div class="pattern-cards">
+                    <div class="pattern-card">
+                        <h4><span class="pattern-icon" style="background: var(--color-actor-1);">TCP</span> TCP</h4>
+                        <p>Reliable, ordered, ubiquitous. The default for most libp2p nodes. Works everywhere but has head-of-line blocking.</p>
+                    </div>
+                    <div class="pattern-card">
+                        <h4><span class="pattern-icon" style="background: var(--color-actor-2);">QC</span> QUIC</h4>
+                        <p>Built on UDP, built-in encryption (TLS 1.3), faster handshake. The future of P2P networking. Multiplexes natively.</p>
+                    </div>
+                    <div class="pattern-card">
+                        <h4><span class="pattern-icon" style="background: var(--color-actor-3);">WS</span> WebSocket</h4>
+                        <p>Runs over HTTP, works through corporate firewalls and proxies. Essential for browser-based nodes.</p>
+                    </div>
+                    <div class="pattern-card">
+                        <h4><span class="pattern-icon" style="background: var(--color-actor-4);">WSS</span> WebRTC</h4>
+                        <p>Direct browser-to-browser. NAT traversal built-in. For true P2P in web browsers.</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="screen animate-in">
+                <h2 class="screen-heading">The Transport Interface</h2>
+
+                <div class="translation-block">
+                    <div class="translation-code">
+<pre><span class="code-comment">// From core/transport/transport.go</span>
+
+type Transport interface {
+    <span class="code-comment">// Dial a remote peer</span>
+    Dial(ctx context.Context, raddr ma.Multiaddr, p peer.ID) (CapableConn, <span class="code-keyword">error</span>)
+
+    <span class="code-comment">// Can this transport dial this address?</span>
+    CanDial(addr ma.Multiaddr) <span class="code-keyword">bool</span>
+
+    <span class="code-comment">// Listen for connections</span>
+    Listen(laddr ma.Multiaddr) (Listener, <span class="code-keyword">error</span>)
+
+    <span class="code-comment">// What protocols does this transport support?</span>
+    Protocols() []<span class="code-keyword">int</span>
+}</pre>
+                    </div>
+                    <div class="translation-english">
+                        <h4>Transport Contract</h4>
+                        <p><strong>Dial:</strong> Connect to a peer at a specific address. Returns a "capable connection" — one that's upgraded with security and multiplexing.</p>
+                        <p><strong>CanDial:</strong> Check if this transport can handle this address. TCP transport returns true for /tcp/ addresses.</p>
+                        <p><strong>Listen:</strong> Start accepting incoming connections on a local address.</p>
+                        <p><strong>Protocols:</strong> Report which multiaddr protocols this transport understands.</p>
+                    </div>
+                </div>
+
+                <div class="callout">
+                    <h4>Pluggable by Design</h4>
+                    <p>You can add new transports without changing your app code. Just import the transport package and libp2p auto-detects it. Your app uses the "Capability" interface — it doesn't care if it's TCP, QUIC, or something custom.</p>
+                </div>
+            </div>
+
+            <div class="screen animate-in">
+                <h2 class="screen-heading">Multiaddr: Self-Describing Addresses</h2>
+
+                <div class="key-visual">
+                    <h3>Multiaddr Example</h3>
+                    <div class="key-box">
+                        <span style="color: var(--color-info);">/ip4/</span><span>192.168.1.10</span><span style="color: var(--color-info);">/tcp/</span><span>4001</span><span style="color: var(--color-info);">/p2p/</span><span>QmYy...</span>
+                    </div>
+                    <p style="margin-top: var(--space-4); font-size: var(--text-sm);">Each segment describes one layer: IP → TCP → libp2p peer</p>
+                </div>
+
+                <p><span class="has-tooltip" data-tooltip="Multiaddr is a composable addressing format - each protocol adds context, making addresses self-describing and future-proof">Multiaddrs</span> are a key insight: they're protocol-agnostic, composable, and self-describing. The address tells you exactly how to reach a peer: use IPv4, then TCP, then the libp2p protocol with that Peer ID.</p>
+            </div>
+
+            <div class="quiz-container">
+                <p class="quiz-question">Your node needs to work in browsers and mobile apps. Which transports should you enable?</p>
+                <div class="quiz-options">
+                    <div class="quiz-option" data-correct="false"><p>A. TCP only — it's the standard</p></div>
+                    <div class="quiz-option" data-correct="true"><p>B. TCP + WebSocket + WebRTC — maximum reach</p></div>
+                    <div class="quiz-option" data-correct="false"><p>C. UDP only — it's faster</p></div>
+                </div>
+                <div class="quiz-feedback"></div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Module 7: Discovery -->
+    <section class="module" id="module-7">
+        <div class="module-content">
+            <header class="module-header animate-in">
+                <span class="module-number">07</span>
+                <h1 class="module-title">Peer Discovery</h1>
+                <p class="module-subtitle">Finding peers without a central directory</p>
+            </header>
+
+            <div class="screen animate-in">
+                <h2 class="screen-heading">The Discovery Problem</h2>
+                <p>P2P apps need to <strong>find</strong> peers before they can connect. But without a central server, how? libp2p provides multiple <span class="has-tooltip" data-tooltip="Discovery mechanisms let peers find each other without a central registry - mDNS for local, DHT for global, bootstrap nodes to get started">discovery mechanisms</span>.</p>
+
+                <div class="chat-container">
+                    <div class="chat-message">
+                        <div class="chat-avatar" style="background: var(--color-actor-1);">New Node</div>
+                        <div class="chat-bubble sent">
+                            <p>I just joined the network. How do I find peers?</p>
+                        </div>
+                    </div>
+                    <div class="chat-message">
+                        <div class="chat-avatar" style="background: var(--color-actor-2);">DHT</div>
+                        <div class="chat-bubble">
+                            <p>Ask me! I maintain a distributed hash table of who's online.</p>
+                            <p class="timestamp">Kademlia DHT protocol</p>
+                        </div>
+                    </div>
+                    <div class="chat-message">
+                        <div class="chat-avatar" style="background: var(--color-actor-3);">mDNS</div>
+                        <div class="chat-bubble">
+                            <p>Or check locally — if you're on the same WiFi, I can find nearby peers instantly.</p>
+                            <p class="timestamp">Multicast DNS for LAN discovery</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="screen animate-in">
+                <h2 class="screen-heading">Discovery Interfaces</h2>
+
+                <div class="translation-block">
+                    <div class="translation-code">
+<pre><span class="code-comment">// From core/discovery/discovery.go</span>
+
+<span class="code-comment">// Advertiser announces services</span>
+type Advertiser interface {
+    Advertise(ctx context.Context, ns <span class="code-keyword">string</span>, opts ...Option) (
+        time.Duration, <span class="code-keyword">error</span>)
+}
+
+<span class="code-comment">// Discoverer finds peers providing a service</span>
+type Discoverer interface {
+    FindPeers(ctx context.Context, ns <span class="code-keyword">string</span>, opts ...Option) (
+        <-chan peer.AddrInfo, <span class="code-keyword">error</span>)
+}
+
+<span class="code-comment">// Discovery combines both</span>
+type Discovery interface {
+    Advertiser
+    Discoverer
+}</pre>
+                    </div>
+                    <div class="translation-english">
+                        <h4>The Discovery Contract</h4>
+                        <p><strong>Advertise:</strong> Announce "I provide service X" so others can find you. Returns TTL — how long the advertisement is valid.</p>
+                        <p><strong>FindPeers:</strong> Search for peers providing a service. Returns a channel that yields peers as they're found. This is asynchronous because discovery takes time.</p>
+                        <p><strong>Namespace:</strong> The "ns" parameter is like a service name — "/myapp/1.0.0" identifies your app's peers.</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="screen animate-in">
+                <h2 class="screen-heading">Putting It All Together</h2>
+
+                <div class="arch-diagram">
+                    <h3 style="font-family: var(--font-display); text-align: center; margin-bottom: var(--space-6);">Complete libp2p Flow</h3>
+                    <div class="flow-diagram" style="flex-wrap: wrap;">
+                        <div class="flow-node" style="border-color: var(--color-actor-1); min-width: 140px;">
+                            <h4>1. Identity</h4>
+                            <p>Create keys</p>
+                        </div>
+                        <span class="flow-arrow">→</span>
+                        <div class="flow-node" style="border-color: var(--color-actor-2); min-width: 140px;">
+                            <h4>2. Host</h4>
+                            <p>Initialize</p>
+                        </div>
+                        <span class="flow-arrow">→</span>
+                        <div class="flow-node" style="border-color: var(--color-actor-3); min-width: 140px;">
+                            <h4>3. Discover</h4>
+                            <p>Find peers</p>
+                        </div>
+                        <span class="flow-arrow">→</span>
+                        <div class="flow-node" style="border-color: var(--color-actor-4); min-width: 140px;">
+                            <h4>4. Connect</h4>
+                            <p>Dial peer</p>
+                        </div>
+                        <span class="flow-arrow">→</span>
+                        <div class="flow-node" style="border-color: var(--color-actor-5); min-width: 140px;">
+                            <h4>5. Stream</h4>
+                            <p>Communicate</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="pattern-cards">
+                    <div class="pattern-card">
+                        <h4><span class="pattern-icon" style="background: var(--color-actor-1);">1</span> Identity</h4>
+                        <p>Generate keypair → Peer ID. This is your cryptographic identity. Store the private key securely.</p>
+                    </div>
+                    <div class="pattern-card">
+                        <h4><span class="pattern-icon" style="background: var(--color-actor-2);">2</span> Host</h4>
+                        <p>Create Host with transports and listen addresses. Choose which protocols to support.</p>
+                    </div>
+                    <div class="pattern-card">
+                        <h4><span class="pattern-icon" style="background: var(--color-actor-3);">3</span> Discovery</h4>
+                        <p>Advertise your service. Find peers via DHT, mDNS, or bootstrap nodes.</p>
+                    </div>
+                    <div class="pattern-card">
+                        <h4><span class="pattern-icon" style="background: var(--color-actor-4);">4</span> Connect</h4>
+                        <p>Use Connect() or NewStream(). Network layer negotiates transport and upgrades security.</p>
+                    </div>
+                    <div class="pattern-card">
+                        <h4><span class="pattern-icon" style="background: var(--color-actor-5);">5</span> Stream</h4>
+                        <p>Open streams for your protocols. Read/write data. Handle protocol-specific messages.</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="screen animate-in">
+                <h2 class="screen-heading">Debug Checklist</h2>
+                <p>When your P2P app isn't working, check these layers from top to bottom:</p>
+
+                <div class="code-block">
+<pre>1. Identity: Does peer.ID() return what you expect?
+   h.ID().String() // Should be a valid Peer ID
+
+2. Listening: Is the host accepting connections?
+   h.Addrs() // Shows listen addresses
+
+3. Connectivity: Can you reach the peer?
+   h.Network().Connectedness(peerID) // Should be Connected
+
+4. Streams: Can you open a stream?
+   s, err := h.NewStream(ctx, peerID, protocol) // Check err
+
+5. Discovery: Is the DHT finding peers?
+   peers, err := dht.FindPeers(ctx, ns) // Check channel output</pre>
+                </div>
+
+                <div class="callout">
+                    <h4>Debugging Strategy</h4>
+                    <p>Start at the bottom of the stack. Can't connect? Check addresses. Can connect but no stream? Check protocols. Can open stream but no data? Check your handler registration. Layer-by-layer debugging isolates problems.</p>
+                </div>
+            </div>
+
+            <div class="quiz-container">
+                <p class="quiz-question">Users report they can't find peers on the same WiFi. What's the first discovery mechanism to check?</p>
+                <div class="quiz-options">
+                    <div class="quiz-option" data-correct="true"><p>A. mDNS - enables local network discovery without internet</p></div>
+                    <div class="quiz-option" data-correct="false"><p>B. DHT - the distributed hash table finds all peers</p></div>
+                    <div class="quiz-option" data-correct="false"><p>C. Bootstrap nodes - connect to known peers first</p></div>
+                </div>
+                <div class="quiz-feedback"></div>
+            </div>
+
+            <div class="screen animate-in" style="text-align: center; padding: var(--space-12) 0;">
+                <h2 style="font-family: var(--font-display); font-size: var(--text-3xl); margin-bottom: var(--space-6);">You've mastered libp2p Core!</h2>
+                <p style="color: var(--color-text-secondary); margin-bottom: var(--space-8);">You now understand how identity, crypto, transport, network, host, and discovery fit together.</p>
+                <div style="background: var(--color-surface); border-radius: var(--radius-lg); padding: var(--space-6); display: inline-block; text-align: left; border: 1px solid var(--color-border); max-width: 500px;">
+                    <p style="font-weight: 600; margin-bottom: var(--space-3);">What you can now do:</p>
+                    <ul style="color: var(--color-text-secondary); font-size: var(--text-sm); padding-left: var(--space-5);">
+                        <li>Debug P2P connectivity issues layer-by-layer</li>
+                        <li>Choose appropriate transports for your use case</li>
+                        <li>Explain why multiplexing matters</li>
+                        <li>Configure discovery mechanisms</li>
+                        <li>Spot architectural mistakes in AI-generated P2P code</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <script>
+        const observer = new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    entry.target.classList.add('visible');
+                    observer.unobserve(entry.target);
+                }
+            });
+        }, { rootMargin: '0px 0px -10% 0px', threshold: 0.1 });
+
+        document.querySelectorAll('.animate-in').forEach(el => observer.observe(el));
+
+        const modules = document.querySelectorAll('.module');
+        const dots = document.querySelectorAll('.nav-dot');
+        const progressBar = document.querySelector('.progress-bar');
+
+        function updateProgress() {
+            const scrollTop = window.scrollY;
+            const docHeight = document.documentElement.scrollHeight - window.innerHeight;
+            const progress = (scrollTop / docHeight) * 100;
+            progressBar.style.width = progress + '%';
+
+            let currentModule = 0;
+            modules.forEach((mod, i) => {
+                const rect = mod.getBoundingClientRect();
+                if (rect.top <= 100) currentModule = i;
+            });
+
+            dots.forEach((dot, i) => {
+                dot.classList.remove('current', 'visited');
+                if (i < currentModule) dot.classList.add('visited');
+                if (i === currentModule) dot.classList.add('current');
+            });
+        }
+
+        window.addEventListener('scroll', () => {
+            requestAnimationFrame(updateProgress);
+        }, { passive: true });
+
+        dots.forEach((dot, i) => {
+            dot.addEventListener('click', () => {
+                modules[i].scrollIntoView({ behavior: 'smooth' });
+            });
+        });
+
+        document.addEventListener('keydown', (e) => {
+            if (['INPUT', 'TEXTAREA'].includes(e.target.tagName)) return;
+            const current = document.querySelector('.nav-dot.current');
+            const idx = Array.from(dots).indexOf(current);
+
+            if ((e.key === 'ArrowDown' || e.key === 'ArrowRight') && idx < dots.length - 1) {
+                modules[idx + 1].scrollIntoView({ behavior: 'smooth' });
+                e.preventDefault();
+            }
+            if ((e.key === 'ArrowUp' || e.key === 'ArrowLeft') && idx > 0) {
+                modules[idx - 1].scrollIntoView({ behavior: 'smooth' });
+                e.preventDefault();
+            }
+        });
+
+        document.querySelectorAll('.quiz-container').forEach(quiz => {
+            const options = quiz.querySelectorAll('.quiz-option');
+            const feedback = quiz.querySelector('.quiz-feedback');
+
+            options.forEach(option => {
+                option.addEventListener('click', () => {
+                    if (option.classList.contains('correct') || option.classList.contains('wrong')) return;
+                    const isCorrect = option.dataset.correct === 'true';
+
+                    options.forEach(opt => {
+                        if (opt.dataset.correct === 'true') {
+                            opt.classList.add('correct');
+                        } else if (opt === option) {
+                            opt.classList.add(isCorrect ? 'correct' : 'wrong');
+                        }
+                    });
+
+                    feedback.classList.add('show', isCorrect ? 'correct' : 'wrong');
+                    feedback.textContent = isCorrect
+                        ? "Exactly! You've understood how libp2p works."
+                        : "Not quite — review the code and concepts again. The correct answer aligns with the patterns shown throughout the course.";
+                });
+            });
+        });
+
+        const tooltip = document.createElement('div');
+        tooltip.className = 'tooltip';
+        document.body.appendChild(tooltip);
+
+        document.querySelectorAll('.has-tooltip').forEach(el => {
+            el.addEventListener('mouseenter', () => {
+                const rect = el.getBoundingClientRect();
+                tooltip.textContent = el.dataset.tooltip;
+                tooltip.classList.add('show');
+
+                const tooltipRect = tooltip.getBoundingClientRect();
+                let top = rect.top - tooltipRect.height - 8;
+                let left = rect.left + (rect.width - tooltipRect.width) / 2;
+
+                if (top < 0) {
+                    top = rect.bottom + 8;
+                    tooltip.classList.add('above');
+                }
+
+                tooltip.style.top = top + 'px';
+                tooltip.style.left = left + 'px';
+            });
+
+            el.addEventListener('mouseleave', () => {
+                tooltip.classList.remove('show', 'above');
+            });
+        });
+    </script>
+</body>
+</html>
